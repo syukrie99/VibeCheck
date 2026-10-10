@@ -1048,6 +1048,9 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
             vibeScore: 94,
             streakDays: 7,
             csvIngests: 0,
+            crisisActive: false,
+            crisisSnapshot: null,
+            preCrisisVibe: 94,
             quests: [
                 { id: 'q1', title: 'Run Morning Stock Usage Scan', desc: 'Execute daily usage speed analysis', xp: 50, done: false },
                 { id: 'q2', title: 'Lock 1 AI Vendor Bid', desc: 'Negotiate price reduction via WorkBuddy AI', xp: 100, done: false },
@@ -1234,7 +1237,7 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
                         </div>
                         <div>
                             <h4 class="font-bold text-white text-xs">${item.name}</h4>
-                            <div class="text-[11px] text-emerald-400 font-mono">Stock Added: +${item.reorderQty} ${item.unit}</div>
+                            <div class="text-[11px] text-emerald-400 font-mono">Stock Added: +${item.lastDeliveredQty || item.reorderQty} ${item.unit}</div>
                         </div>
                     </div>
                 `;
@@ -1503,111 +1506,184 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
             updateGamificationUI();
         }
 
+        /* ---------- Stockout crisis (rewritten: every number/text now comes from live state) ---------- */
+        const CRISIS_EMERGENCY_QTY = 40;   // kg via same-day courier
+        const CRISIS_TRANSFER_QTY = 15;    // kg via sister-branch driver
+        const WAGYU_BASE_VELOCITY = 22.5;  // normal kg/day, used to detect a demand spike
+
+        function buildCrisisCauses(s) {
+            const causes = [];
+            const pct = Math.round((s.velocity / WAGYU_BASE_VELOCITY - 1) * 100);
+            if (pct >= 20) causes.push(`usage speed is running ${pct}% above normal (${s.velocity} kg/day)`);
+            if (s.stock > 0 && s.stock <= s.safety) {
+                causes.push(`stock was already below the ${s.safety} kg safety buffer (${s.stock} kg, about ${(s.stock / (s.velocity || 1)).toFixed(1)} days of runway)`);
+            }
+            if (s.stage === 1) causes.push('no reorder had been started');
+            else if (s.stage === 2) causes.push('vendor bidding was still open and no PO had been issued');
+            else if (s.stage === 3) causes.push('the PO draft was still waiting for approval');
+            else if (s.stage === 4) causes.push('the incoming parcel had not arrived yet');
+            if (causes.length === 0) causes.push('a sudden demand spike or stock write-off with no earlier warning signs');
+            return causes;
+        }
+
+        function crisisOptionCard(n, o) {
+            const base = 'p-3.5 rounded-xl border bg-gray-950 transition flex items-center justify-between group';
+            if (o.disabled) {
+                return `
+                    <div class="${base} border-gray-800 opacity-50 cursor-not-allowed">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">${n}. ${o.title}</span>
+                                <span class="text-[9px] ${o.tagClass} px-1.5 py-0.5 rounded border">${o.tag}</span>
+                            </div>
+                            <p class="text-[11px] text-gray-400">${o.disabled}</p>
+                        </div>
+                        <button disabled class="bg-gray-800 text-gray-500 font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">Unavailable</button>
+                    </div>`;
+            }
+            return `
+                <div onclick="resolveCrisis(${n})" class="${base} ${o.border} cursor-pointer ${o.hover}">
+                    <div class="space-y-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-bold text-white">${n}. ${o.title}</span>
+                            <span class="text-[9px] ${o.tagClass} px-1.5 py-0.5 rounded border">${o.tag}</span>
+                        </div>
+                        <p class="text-[11px] text-gray-400">${o.desc}</p>
+                    </div>
+                    <button class="${o.btnClass} text-white font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">${o.btn}</button>
+                </div>`;
+        }
+
+        function renderCrisisModal(wagyu) {
+            const s = gameState.crisisSnapshot || { stock: 0, stage: wagyu.stage, velocity: wagyu.dailyVelocity, safety: wagyu.safetyThreshold };
+            const sel = wagyu.suppliers[wagyu.selectedSupplierIndex] || wagyu.suppliers[0];
+            const v = wagyu.dailyVelocity || 1;
+            const inTransit = wagyu.stage === 4;
+            const rice = inventoryState.find(i => i.id === 'item-4');
+            const riceOk = rice && rice.currentStock > rice.safetyThreshold;
+
+            const summary = document.getElementById('crisisSummaryText');
+            if (summary) {
+                const causes = buildCrisisCauses(s);
+                summary.innerHTML = `
+                    <p class="mb-2"><strong class="text-white font-mono">${wagyu.name}</strong> has completely run out of stock (<strong class="text-rose-400">0 ${wagyu.unit} remaining</strong>)!</p>
+                    <p class="text-gray-400"><strong>Likely cause:</strong> ${causes.join('; ')}. The kitchen cannot serve Wagyu burgers until stock is replaced.</p>
+                    ${inTransit ? `<p class="text-cyan-300 mt-2">A parcel is already in transit (${wagyu.trackingNo}). Open the EasyParcel tracker to follow it.</p>` : ''}
+                `;
+            }
+
+            const blocked = inTransit ? `A parcel is already in transit (${wagyu.trackingNo}); a second dispatch would overwrite it. Use the EasyParcel tracker instead.` : null;
+
+            const opts = [
+                crisisOptionCard(1, {
+                    title: 'Emergency Same-Day Cold Chain Dispatch',
+                    tag: 'EasyParcel Express', tagClass: 'bg-cyan-950 text-cyan-300 border-cyan-800',
+                    border: 'border-brand-500/50', hover: 'hover:bg-brand-950/40',
+                    desc: `Book an express cold-chain rider to collect ${CRISIS_EMERGENCY_QTY} ${wagyu.unit} from ${sel.name} (standard lead time under ${sel.leadTimeHours}h). Stock is added only when delivery is confirmed. ${CRISIS_EMERGENCY_QTY} ${wagyu.unit} lasts about ${(CRISIS_EMERGENCY_QTY / v).toFixed(1)} days at ${v} ${wagyu.unit}/day.`,
+                    btn: 'Execute (+20 Vibe pts)', btnClass: 'bg-brand-600 group-hover:bg-brand-500',
+                    disabled: blocked
+                }),
+                crisisOptionCard(2, {
+                    title: 'Inter-Branch Emergency Transfer',
+                    tag: 'Sister Branch Loan', tagClass: 'bg-amber-950 text-amber-300 border-amber-800',
+                    border: 'border-amber-500/50', hover: 'hover:bg-amber-950/40',
+                    desc: `Request ${CRISIS_TRANSFER_QTY} ${wagyu.unit} from the Bangsar branch by driver. Stock is added when the transfer is confirmed delivered. This covers only about ${(CRISIS_TRANSFER_QTY / v).toFixed(1)} days at ${v} ${wagyu.unit}/day, so a full reorder is still needed.`,
+                    btn: 'Transfer (+15 Vibe pts)', btnClass: 'bg-amber-600 group-hover:bg-amber-500',
+                    disabled: blocked
+                }),
+                crisisOptionCard(3, {
+                    title: 'Temporary Menu Substitution',
+                    tag: 'POS Menu Update', tagClass: 'bg-gray-800 text-gray-300 border-gray-700',
+                    border: 'border-gray-700', hover: 'hover:bg-gray-800',
+                    desc: `Pause Wagyu burgers on the POS and promote a Jasmine Rice Bowl special instead${riceOk ? ` (Jasmine Rice: ${rice.currentStock} ${rice.unit}, above its buffer)` : ' (note: Jasmine Rice is also low, check stock first)'}. This adds no Wagyu stock${wagyu.stage === 1 ? '; the reorder moves to AI Vendor Bidding' : ''}.`,
+                    btn: 'Substitute (+10 Vibe pts)', btnClass: 'bg-gray-700 group-hover:bg-gray-600'
+                })
+            ];
+
+            const container = document.getElementById('crisisSolutionsContainer');
+            if (container) container.innerHTML = opts.join('');
+        }
+
         function triggerStockoutCrisis() {
             const wagyu = inventoryState.find(i => i.id === 'item-1');
-            if (wagyu) {
-                wagyu.currentStock = 0;
-                wagyu.stage = 1;
+            if (!wagyu) return;
+
+            // Already in a live crisis: just reopen the plan, don't penalise again.
+            if (gameState.crisisActive && wagyu.currentStock === 0) {
+                showToast('⚠️ Crisis already active. Choose a recovery plan.');
+                renderCrisisModal(wagyu);
+                openModal('crisisModal');
+                return;
             }
+
+            gameState.crisisSnapshot = {
+                stock: wagyu.currentStock,
+                stage: wagyu.stage,
+                velocity: wagyu.dailyVelocity,
+                safety: wagyu.safetyThreshold
+            };
+            gameState.crisisActive = true;
+            gameState.preCrisisVibe = gameState.vibeScore;
+
+            wagyu.currentStock = 0;
+            if (wagyu.stage !== 4) wagyu.stage = 1;   // keep any parcel that is already in transit
             gameState.vibeScore = 68;
             gameState.streakDays = 0;
 
+            renderCrisisModal(wagyu);
+            renderKanbanBoard();
             updateHeaderMetrics();
             updateGamificationUI();
-            renderKanbanBoard();
-
-            const summaryText = document.getElementById('crisisSummaryText');
-            if (summaryText) {
-                summaryText.innerHTML = `
-                    <p class="mb-2"><strong class="text-white font-mono">Grade A Wagyu Beef Patty</strong> has completely run out of stock (<strong class="text-rose-400">0 kg remaining</strong>)!</p>
-                    <p class="text-gray-400"><strong>Root Cause:</strong> Unanticipated +50% weekend dinner rush combined with delayed vendor dispatch approval. Kitchen is currently turning away burger orders.</p>
-                `;
-            }
-
-            const solutionsContainer = document.getElementById('crisisSolutionsContainer');
-            if (solutionsContainer) {
-                solutionsContainer.innerHTML = `
-                    <div onclick="resolveCrisis(1)" class="p-3.5 rounded-xl border border-brand-500/50 bg-gray-950 hover:bg-brand-950/40 cursor-pointer transition flex items-center justify-between group">
-                        <div class="space-y-1">
-                            <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-white group-hover:text-brand-300">1. Emergency Same-Day Cold Chain Dispatch</span>
-                                <span class="text-[9px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800">EasyParcel Express</span>
-                            </div>
-                            <p class="text-[11px] text-gray-400">Dispatch PosLaju Express rider to pick up 40kg directly from Supreme Meat Wholesale distribution center within 2 hours.</p>
-                        </div>
-                        <button class="bg-brand-600 group-hover:bg-brand-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">
-                            Execute (+20% Vibe)
-                        </button>
-                    </div>
-
-                    <div onclick="resolveCrisis(2)" class="p-3.5 rounded-xl border border-amber-500/50 bg-gray-950 hover:bg-amber-950/40 cursor-pointer transition flex items-center justify-between group">
-                        <div class="space-y-1">
-                            <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-white group-hover:text-amber-300">2. Inter-Branch Emergency Transfer</span>
-                                <span class="text-[9px] bg-amber-950 text-amber-300 px-1.5 py-0.5 rounded border border-amber-800">Sister Branch Loan</span>
-                            </div>
-                            <p class="text-[11px] text-gray-400">Request 15kg emergency transfer from VibeCheck Sister Outlet (Bangsar Branch). Driver dispatched.</p>
-                        </div>
-                        <button class="bg-amber-600 group-hover:bg-amber-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">
-                            Transfer (+15% Vibe)
-                        </button>
-                    </div>
-
-                    <div onclick="resolveCrisis(3)" class="p-3.5 rounded-xl border border-gray-800 bg-gray-950 hover:bg-gray-800 cursor-pointer transition flex items-center justify-between group">
-                        <div class="space-y-1">
-                            <div class="flex items-center space-x-2">
-                                <span class="text-xs font-bold text-white">3. Temporary Menu Substitution</span>
-                                <span class="text-[9px] bg-gray-800 text-gray-300 px-1.5 py-0.5 rounded border border-gray-700">POS Menu Update</span>
-                            </div>
-                            <p class="text-[11px] text-gray-400">Promote "Angus Truffle Burger" on POS menu until fresh Wagyu delivery arrives tomorrow morning.</p>
-                        </div>
-                        <button class="bg-gray-700 group-hover:bg-gray-600 text-gray-200 font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">
-                            Substitute (+10% Vibe)
-                        </button>
-                    </div>
-                `;
-            }
-
             openModal('crisisModal');
             showToast('💔 STOCKOUT CRISIS! Streak broken & Vibe Score dropped to ' + gameState.vibeScore + '%');
         }
 
         function resolveCrisis(optionIndex) {
             const wagyu = inventoryState.find(i => i.id === 'item-1');
+            if (!wagyu || !gameState.crisisActive) return;
 
-            if (optionIndex === 1) {
-                if (wagyu) {
-                    wagyu.currentStock = 40;
-                    wagyu.stage = 4;
-                    wagyu.easyParcelStepIndex = 2;
-                }
-                gameState.vibeScore = Math.min(100, gameState.vibeScore + 20);
-                showToast('🚀 Same-Day Emergency Dispatch Triggered! Wagyu stock restored.');
-            } else if (optionIndex === 2) {
-                if (wagyu) {
-                    wagyu.currentStock = 15;
-                    wagyu.stage = 1;
-                }
-                gameState.vibeScore = Math.min(100, gameState.vibeScore + 15);
-                showToast('🚗 Sister Branch Transfer Approved! 15kg Wagyu received.');
+            let points = 0;
+            let toast = '';
+            let openTracker = false;
+
+            if (optionIndex === 1 || optionIndex === 2) {
+                if (wagyu.stage === 4) return;   // guarded in the UI too
+                wagyu._normal = wagyu._normal || { courier: wagyu.courier, trackingNo: wagyu.trackingNo };
+                const isExpress = optionIndex === 1;
+                wagyu.inboundQty = isExpress ? CRISIS_EMERGENCY_QTY : CRISIS_TRANSFER_QTY;
+                wagyu.courier = isExpress ? 'PosLaju Express (Same-Day Cold Chain)' : 'Branch Driver (Bangsar Transfer)';
+                wagyu.trackingNo = (isExpress ? 'EP-MY-EMG-' : 'EP-MY-TRF-') + Math.floor(10000 + Math.random() * 90000);
+                wagyu.easyParcelStepIndex = 0;
+                wagyu.stage = 4;                  // stock stays 0 until delivery is confirmed
+                points = isExpress ? 20 : 15;
+                toast = isExpress
+                    ? `🚀 Emergency dispatch booked: ${CRISIS_EMERGENCY_QTY} ${wagyu.unit} in transit (${wagyu.trackingNo}). Stock updates on delivery.`
+                    : `🚗 Transfer requested: ${CRISIS_TRANSFER_QTY} ${wagyu.unit} in transit (${wagyu.trackingNo}). Stock updates on delivery.`;
+                openTracker = true;
             } else if (optionIndex === 3) {
-                if (wagyu) {
-                    wagyu.currentStock = 5;
-                    wagyu.stage = 2;
-                }
-                gameState.vibeScore = Math.min(100, gameState.vibeScore + 10);
-                showToast('📋 Menu Substitution Activated! Angus Truffle featured.');
+                if (wagyu.stage === 1) wagyu.stage = 2;   // start the reorder; no stock is added
+                points = 10;
+                toast = '📋 Menu substitution active. No Wagyu stock added; reorder is in vendor bidding.';
+            } else {
+                return;
             }
 
-            const heroBadge = gameState.badges.find(b => b.id === 'b6');
-            if (heroBadge) heroBadge.unlocked = true;
+            gameState.vibeScore = Math.min(gameState.preCrisisVibe || 100, gameState.vibeScore + points);
+            gameState.crisisActive = false;
+            gameState.crisisSnapshot = null;
+            showToast(toast);
 
-            addXp(120, 'Averted Supply Chain Crisis');
+            const heroBadge = gameState.badges.find(b => b.id === 'b6');
+            if (heroBadge && !heroBadge.unlocked) {
+                heroBadge.unlocked = true;
+                addXp(120, 'Averted Supply Chain Crisis');   // first resolution only (no XP farming)
+            }
 
             closeModal('crisisModal');
             renderKanbanBoard();
             updateHeaderMetrics();
             updateGamificationUI();
+            if (openTracker) openEasyParcelModal('item-1');
         }
 
         /* ---------- Negotiation ---------- */
@@ -1761,6 +1837,7 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
         function approveAndDispatchPO() {
             if (!activeSelectedItem) return;
             activeSelectedItem.stage = 4;
+            activeSelectedItem.easyParcelStepIndex = 0;   // new shipment starts at "Picked Up" (was left at old value, e.g. 3 = already Delivered)
             closeModal('poModal');
             renderKanbanBoard();
             updateHeaderMetrics();
@@ -1890,8 +1967,15 @@ GRAND TOTAL: RM ${grandTotal.toFixed(2)}
             }
             if (!activeSelectedItem) return;
 
+            // Self-heal: status already "Delivered" but the card is still in transit
+            if (activeSelectedItem.stage === 4 && (activeSelectedItem.easyParcelStepIndex || 0) >= 3) {
+                showToast(completeDelivery(activeSelectedItem));
+                renderKanbanBoard();
+                updateHeaderMetrics();
+            }
+
             const titleEl = document.getElementById('epItemTitle');
-            if (titleEl) titleEl.innerText = `${activeSelectedItem.name} (${activeSelectedItem.reorderQty} ${activeSelectedItem.unit})`;
+            if (titleEl) titleEl.innerText = `${activeSelectedItem.name} (${activeSelectedItem.inboundQty || activeSelectedItem.reorderQty} ${activeSelectedItem.unit})`;
 
             const courierEl = document.getElementById('epCourierName');
             if (courierEl) courierEl.innerText = activeSelectedItem.courier;
@@ -1920,24 +2004,61 @@ GRAND TOTAL: RM ${grandTotal.toFixed(2)}
             `;
         }
 
+        // Marks a shipment as delivered, adds the stock and moves the card on the board.
+        // Returns the toast message to show.
+        function completeDelivery(item) {
+            const qty = item.inboundQty || item.reorderQty;
+            item.easyParcelStepIndex = 3;
+            item.currentStock += qty;
+            item.lastDeliveredQty = qty;
+            item.inboundQty = null;
+            if (item._normal) {                       // restore normal courier details after an emergency shipment
+                item.courier = item._normal.courier;
+                item.trackingNo = item._normal.trackingNo;
+                delete item._normal;
+            }
+            if (item.currentStock <= item.safetyThreshold) {
+                item.stage = 1;                       // still under the safety buffer: keep it on watch
+                return `📦 Delivered +${qty} ${item.unit}, but ${item.name} is still below its safety buffer. Back on Usage Watch.`;
+            }
+            item.stage = 5;
+            return `✅ Delivered: ${item.name} +${qty} ${item.unit}. Moved to Restocked & Closed.`;
+        }
+
         function advanceEasyParcelStep() {
             if (!activeSelectedItem) return;
-            if ((activeSelectedItem.easyParcelStepIndex || 0) < 3) {
-                activeSelectedItem.easyParcelStepIndex = (activeSelectedItem.easyParcelStepIndex || 0) + 1;
-                if (activeSelectedItem.easyParcelStepIndex === 3) {
-                    activeSelectedItem.stage = 5;
-                    activeSelectedItem.currentStock += activeSelectedItem.reorderQty;
-                }
-                renderEasyParcelTimeline();
-                renderKanbanBoard();
-                updateHeaderMetrics();
-                showToast(`🚚 Delivery Status Updated: Step ${activeSelectedItem.easyParcelStepIndex + 1}/4`);
+            const item = activeSelectedItem;
+            if (item.stage !== 4) {
+                showToast('This shipment has already been delivered.');
+                return;
             }
+
+            let toastMsg;
+            if ((item.easyParcelStepIndex || 0) >= 3) {
+                // Status already says "Delivered" but the card never moved: finish the delivery now
+                toastMsg = completeDelivery(item);
+            } else {
+                item.easyParcelStepIndex = (item.easyParcelStepIndex || 0) + 1;
+                toastMsg = item.easyParcelStepIndex >= 3
+                    ? completeDelivery(item)
+                    : `🚚 Delivery Status Updated: Step ${item.easyParcelStepIndex + 1}/4`;
+            }
+
+            renderEasyParcelTimeline();
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            showToast(toastMsg);
         }
 
         function queryEasyParcelApi() {
+            if (activeSelectedItem && activeSelectedItem.stage === 4 && (activeSelectedItem.easyParcelStepIndex || 0) >= 3) {
+                showToast(completeDelivery(activeSelectedItem));
+                renderKanbanBoard();
+                updateHeaderMetrics();
+            } else {
+                showToast('📡 EasyParcel API Synced');
+            }
             renderEasyParcelTimeline();
-            showToast('📡 EasyParcel API Synced');
         }
 
         /* ---------- CSV / scenarios ---------- */
