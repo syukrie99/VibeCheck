@@ -1,0 +1,2029 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeCheck | Smart Inventory Management & Reorder Agent</title>
+    <!-- Tailwind CSS (pinned to v3 so html2canvas can read its colours) -->
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        // Full brand scale (the original only defined 50/100/500/600/700/900,
+                        // so classes like text-brand-400 or bg-brand-950 silently did nothing)
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            200: '#c7d2fe',
+                            300: '#a5b4fc',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            800: '#3730a3',
+                            900: '#312e81',
+                            950: '#1e1b4b',
+                        },
+                        vibe: {
+                            green: '#10b981',
+                            amber: '#f59e0b',
+                            rose: '#f43f5e',
+                            cyan: '#06b6d4'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- html2pdf.js for client-side PDF generation & direct download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4b5563;
+        }
+        .kanban-col {
+            min-height: calc(100vh - 280px);
+        }
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-card {
+            background: rgba(31, 41, 55, 0.6);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .glass-card:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+        }
+        @media print {
+            body {
+                background: #ffffff !important;
+                color: #000000 !important;
+            }
+            header, main, #negotiationModal, #easyparcelModal, #ingestModal, #textAnalyticsModal, #achievementsModal, #crisisModal, #workbuddyModal {
+                display: none !important;
+            }
+            #poModal {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                background: white !important;
+                display: block !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+            }
+            #poModal.hidden {
+                display: block !important;
+            }
+            #poModal > div {
+                max-width: 100% !important;
+                max-height: none !important;
+                border: none !important;
+                box-shadow: none !important;
+                background: white !important;
+            }
+            #poModal > div > div:first-child,
+            #poModal > div > div:last-child {
+                display: none !important;
+            }
+            #poPrintArea {
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+                color: #000 !important;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- Top Navigation Header -->
+    <header class="sticky top-0 z-30 border-b border-gray-800 bg-gray-950/80 backdrop-blur-md px-4 lg:px-8 py-3">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+
+            <!-- Logo & Main Title -->
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-vibe-cyan flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-bolt-lightning text-xl"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="text-xl font-black tracking-tight text-white">VibeCheck</h1>
+                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-blue-950/80 text-blue-300 border border-blue-700/60 font-semibold flex items-center space-x-1">
+                            <i class="fa-solid fa-microchip text-[10px]"></i>
+                            <span>Tencent WorkBuddy AI v3.2</span>
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-400">Smart Inventory Management & Reorder Agent</p>
+                </div>
+            </div>
+
+            <!-- Agent Controls & Status Bar -->
+            <div class="flex flex-wrap items-center gap-3 text-xs">
+
+                <!-- Tencent WorkBuddy API Status & Config Trigger Pill -->
+                <div onclick="openWorkBuddyConfigModal()" class="flex items-center space-x-2 bg-blue-950/60 border border-blue-700/50 rounded-xl px-3 py-1.5 cursor-pointer hover:border-blue-500 transition shadow-sm" title="Click to view & configure Tencent WorkBuddy API settings">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    </span>
+                    <i class="fa-solid fa-robot text-blue-400"></i>
+                    <span class="text-gray-300 font-mono">WorkBuddy API:</span>
+                    <span class="text-blue-300 font-semibold font-mono" id="workbuddyApiStatus">ONLINE (24ms)</span>
+                </div>
+
+                <!-- Gamification Vibe Score & Level Pill -->
+                <div onclick="openAchievementsModal()" class="flex items-center space-x-2.5 bg-gradient-to-r from-amber-500/10 via-brand-500/10 to-purple-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 cursor-pointer hover:border-amber-400/60 transition shadow-sm">
+                    <div class="flex items-center space-x-1.5 text-amber-400 font-extrabold font-mono">
+                        <i class="fa-solid fa-trophy text-amber-400 animate-bounce"></i>
+                        <span id="headerLevelText">Lvl 3</span>
+                    </div>
+                    <span class="text-gray-600">|</span>
+                    <div class="flex items-center space-x-1">
+                        <span class="text-xs font-bold text-emerald-400 font-mono" id="headerVibeScore">94% Vibe</span>
+                        <span class="flex h-2 w-2 relative">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Streak Counter Pill -->
+                <div onclick="openAchievementsModal()" class="hidden sm:flex items-center space-x-1.5 bg-gray-900/90 border border-amber-500/30 rounded-lg px-2.5 py-1.5 cursor-pointer hover:bg-gray-800 transition" title="Stockout-Free Days Streak">
+                    <span class="text-amber-500 font-bold">🔥</span>
+                    <span class="text-amber-300 font-mono font-bold text-xs" id="headerStreakText">7 Days Streak</span>
+                </div>
+
+                <!-- EasyParcel API Status Pill -->
+                <div class="flex items-center space-x-2 bg-gray-900/90 border border-gray-800 rounded-lg px-3 py-1.5 cursor-pointer hover:border-gray-700 transition" onclick="openEasyParcelModal()">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <i class="fa-solid fa-truck-fast text-gray-400"></i>
+                    <span class="text-gray-300 font-mono">EasyParcel API:</span>
+                    <span class="text-emerald-400 font-semibold" id="easyparcelStatus">CONNECTED</span>
+                </div>
+
+                <!-- Auto-Pilot Mode Toggle -->
+                <div class="flex items-center space-x-2 bg-gray-900/90 border border-gray-800 rounded-lg px-3 py-1.5">
+                    <i class="fa-solid fa-robot text-brand-400"></i>
+                    <span class="text-gray-300 font-medium">Auto-Restock Mode:</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="autopilotToggle" class="sr-only peer" onchange="toggleAutopilot()">
+                        <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
+                    </label>
+                </div>
+
+                <!-- Action Buttons -->
+                <button onclick="triggerSalesVelocityScan()" class="bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold px-3 py-1.5 rounded-lg shadow-md transition flex items-center space-x-1.5">
+                    <i class="fa-solid fa-rotate-right text-xs"></i>
+                    <span>Run Stock Usage Scan</span>
+                </button>
+
+                <button onclick="triggerStockoutCrisis()" class="bg-gradient-to-r from-rose-700 to-red-600 hover:from-rose-600 hover:to-red-500 text-white font-semibold px-3 py-1.5 rounded-lg shadow-md transition flex items-center space-x-1.5 border border-rose-500/40" title="Simulate a sudden stockout failure to test impact & AI solution recovery">
+                    <i class="fa-solid fa-triangle-exclamation text-xs animate-bounce"></i>
+                    <span>Simulate Stockout Crisis</span>
+                </button>
+
+                <div class="flex items-center space-x-1">
+                    <button onclick="openIngestModal()" class="bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium px-3 py-1.5 rounded-l-lg border border-gray-700 transition flex items-center space-x-1.5">
+                        <i class="fa-solid fa-file-csv text-emerald-400"></i>
+                        <span>Sales CSV</span>
+                    </button>
+                    <button onclick="exportSalesDataCsv(false)" title="Export Current Sales Log CSV" class="bg-gray-800 hover:bg-gray-700 text-emerald-400 font-medium px-2 py-1.5 rounded-r-lg border-t border-b border-r border-gray-700 transition">
+                        <i class="fa-solid fa-download text-xs"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+        <!-- Pure Textual & Indicator Analytics Deck -->
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            <!-- Metric 1: Stock Depletion Risk -->
+            <div class="glass-panel rounded-2xl p-4 border-l-4 border-l-vibe-rose relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs uppercase font-bold tracking-wider text-gray-400">Depletion Risk Alert</span>
+                    <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-rose-950/80 text-rose-400 border border-rose-800/50 uppercase animate-pulse" id="riskBadge">2 Critical</span>
+                </div>
+                <div class="mt-2">
+                    <div class="text-2xl font-black text-white font-mono" id="atRiskCount">2 Stock Items</div>
+                    <div class="mt-1 text-xs text-gray-300 flex items-center space-x-1">
+                        <i class="fa-solid fa-triangle-exclamation text-rose-400"></i>
+                        <span id="riskSummaryText"><strong class="text-rose-400">Wagyu Patty</strong> & <strong class="text-amber-400">Mozzarella</strong> below safety threshold</span>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 border-t border-gray-800/80 pt-2 flex justify-between">
+                    <span>Forecast Window: <strong>Next 48 Hours</strong></span>
+                    <span class="text-rose-400 font-mono font-bold" id="runoutEta">Min ETA: 0.8 Days</span>
+                </div>
+            </div>
+
+            <!-- Metric 2: AI Multi-Vendor Bidding -->
+            <div class="glass-panel rounded-2xl p-4 border-l-4 border-l-brand-500 relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs uppercase font-bold tracking-wider text-gray-400">AI Vendor Multi-Bidding</span>
+                    <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-950/80 text-brand-300 border border-brand-800/50 uppercase">Active</span>
+                </div>
+                <div class="mt-2">
+                    <div class="text-2xl font-black text-white font-mono" id="negotiationSavings">RM 148.50 Saved</div>
+                    <div class="mt-1 text-xs text-gray-300 flex items-center space-x-1">
+                        <i class="fa-solid fa-comments-dollar text-brand-400"></i>
+                        <span id="negotiationStatusText">2 Distributors countering terms</span>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 border-t border-gray-800/80 pt-2 flex justify-between">
+                    <span>Avg Discount Secured: <strong class="text-emerald-400">7.8%</strong></span>
+                    <span class="text-brand-300 font-mono">Lead Time: &lt;24h</span>
+                </div>
+            </div>
+
+            <!-- Metric 3: EasyParcel Delivery Tracker -->
+            <div class="glass-panel rounded-2xl p-4 border-l-4 border-l-vibe-cyan relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs uppercase font-bold tracking-wider text-gray-400">EasyParcel Shipping</span>
+                    <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/50 uppercase">Live Tracking</span>
+                </div>
+                <div class="mt-2">
+                    <div class="text-2xl font-black text-white font-mono" id="inTransitCount">1 Parcel En-Route</div>
+                    <div class="mt-1 text-xs text-gray-300 flex items-center space-x-1">
+                        <i class="fa-solid fa-box-open text-cyan-400"></i>
+                        <span id="courierText">PosLaju Cold Chain</span>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 border-t border-gray-800/80 pt-2 flex justify-between">
+                    <span>Next Expected Arrival:</span>
+                    <span class="text-cyan-300 font-mono font-bold" id="nextArrivalText">Today, 5:30 PM</span>
+                </div>
+            </div>
+
+            <!-- Metric 4: Daily Sales & Usage Speed -->
+            <div class="glass-panel rounded-2xl p-4 border-l-4 border-l-vibe-green relative overflow-hidden">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs uppercase font-bold tracking-wider text-gray-400">Daily Sales & Usage Speed</span>
+                    <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/50 uppercase">FAST USAGE</span>
+                </div>
+                <div class="mt-2">
+                    <div class="text-2xl font-black text-white font-mono" id="velocityText">+34% Weekend Rush</div>
+                    <div class="mt-1 text-xs text-gray-300 flex items-center space-x-1">
+                        <i class="fa-solid fa-fire text-emerald-400"></i>
+                        <span>High demand detected in POS sales log</span>
+                    </div>
+                </div>
+                <div class="mt-3 text-[11px] text-gray-400 border-t border-gray-800/80 pt-2 flex justify-between">
+                    <span>Auto-Restock Efficiency:</span>
+                    <span class="text-emerald-400 font-mono font-bold">99.4% Stockout Avoided</span>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Primary Workflow Section: Kanban Engine -->
+        <section class="space-y-4">
+
+            <!-- Kanban Header & Actions Bar -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-900/60 p-4 rounded-2xl border border-gray-800">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+                        <i class="fa-solid fa-table-columns text-brand-400"></i>
+                        <span>VibeCheck Agent Operations Board</span>
+                    </h2>
+                    <p class="text-xs text-gray-400">Real-time workflow pipeline from stock health check to EasyParcel courier dispatch and completed restock.</p>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Gamification Quests Button -->
+                    <button onclick="openAchievementsModal()" class="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-gray-950 text-xs font-black px-3.5 py-2 rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-award text-sm"></i>
+                        <span>Quests & Trophy Room</span>
+                        <span id="unclaimedBadgeCount" class="bg-gray-950 text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-1">4</span>
+                    </button>
+                    <button onclick="openTextAnalyticsModal()" class="bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-gray-300 px-3 py-2 rounded-xl border border-gray-700 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-quote-left text-brand-400"></i>
+                        <span>Predictive Vibe Insights</span>
+                    </button>
+                    <button onclick="autoNegotiateAllLowStock()" class="bg-brand-600 hover:bg-brand-500 text-xs font-bold text-white px-3.5 py-2 rounded-xl shadow-lg shadow-brand-600/30 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        <span>Auto-Negotiate All Low Stock</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Kanban Board Grid (5 Columns) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+
+                <!-- COLUMN 1: Stock Health & Usage Watch -->
+                <div class="kanban-col bg-gray-950/60 rounded-2xl border border-gray-800/80 p-3 flex flex-col">
+                    <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-gray-200">1. Usage Watch</h3>
+                        </div>
+                        <span id="colCount-1" class="text-xs font-mono font-bold bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full border border-gray-700">0</span>
+                    </div>
+
+                    <div id="colList-1" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                        <!-- Dynamic Cards Injected Here -->
+                    </div>
+                </div>
+
+                <!-- COLUMN 2: AI Vendor Multi-Negotiation -->
+                <div class="kanban-col bg-gray-950/60 rounded-2xl border border-gray-800/80 p-3 flex flex-col">
+                    <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-brand-500 animate-pulse"></span>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-gray-200">2. AI Vendor Bidding</h3>
+                        </div>
+                        <span id="colCount-2" class="text-xs font-mono font-bold bg-gray-800 text-brand-300 px-2 py-0.5 rounded-full border border-brand-800">0</span>
+                    </div>
+
+                    <div id="colList-2" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                        <!-- Dynamic Cards Injected Here -->
+                    </div>
+                </div>
+
+                <!-- COLUMN 3: PO Drafts & Approval -->
+                <div class="kanban-col bg-gray-950/60 rounded-2xl border border-gray-800/80 p-3 flex flex-col">
+                    <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-gray-200">3. PO Draft Approval</h3>
+                        </div>
+                        <span id="colCount-3" class="text-xs font-mono font-bold bg-gray-800 text-amber-300 px-2 py-0.5 rounded-full border border-amber-800">0</span>
+                    </div>
+
+                    <div id="colList-3" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                        <!-- Dynamic Cards Injected Here -->
+                    </div>
+                </div>
+
+                <!-- COLUMN 4: EasyParcel Delivery Tracker -->
+                <div class="kanban-col bg-gray-950/60 rounded-2xl border border-gray-800/80 p-3 flex flex-col">
+                    <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-vibe-cyan"></span>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-gray-200">4. EasyParcel Transit</h3>
+                        </div>
+                        <span id="colCount-4" class="text-xs font-mono font-bold bg-gray-800 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-800">0</span>
+                    </div>
+
+                    <div id="colList-4" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                        <!-- Dynamic Cards Injected Here -->
+                    </div>
+                </div>
+
+                <!-- COLUMN 5: Completed Restocks -->
+                <div class="kanban-col bg-gray-950/60 rounded-2xl border border-gray-800/80 p-3 flex flex-col">
+                    <div class="flex items-center justify-between pb-3 border-b border-gray-800 mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-gray-200">5. Restocked & Closed</h3>
+                        </div>
+                        <span id="colCount-5" class="text-xs font-mono font-bold bg-gray-800 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-800">0</span>
+                    </div>
+
+                    <div id="colList-5" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                        <!-- Dynamic Cards Injected Here -->
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+
+    <!-- MODAL 1: AI Multi-Vendor Negotiation Live Terminal -->
+    <div id="negotiationModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-brand-600/30 text-brand-400 border border-brand-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-handshake-simple text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white" id="negModalItemName">Item Negotiation Agent</h3>
+                        <p class="text-xs text-gray-400">Tencent WorkBuddy multi-vendor price & lead time negotiation engine</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('negotiationModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-4 font-sans">
+                <!-- Current Item Summary Banner -->
+                <div id="negItemSummary" class="bg-gray-950 border border-gray-800 rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                </div>
+
+                <!-- Vendor Quotes Comparison Grid -->
+                <div>
+                    <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider mb-2 flex items-center justify-between">
+                        <span>Distributor Quotations & Bids</span>
+                        <span class="text-[10px] text-brand-400">WorkBuddy AI Auto-Selecting Best Rate</span>
+                    </h4>
+                    <div id="vendorGrid" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    </div>
+                </div>
+
+                <!-- AI Agent Chat Logs / Negotiation Stream -->
+                <div class="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
+                    <div class="flex items-center justify-between border-b border-gray-800/80 pb-2">
+                        <span class="text-xs font-bold text-white flex items-center space-x-2">
+                            <i class="fa-solid fa-terminal text-blue-400"></i>
+                            <span>Tencent WorkBuddy Agent Reasoning Log</span>
+                        </span>
+                        <span class="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded font-mono border border-blue-800">WorkBuddy Managed Agent</span>
+                    </div>
+
+                    <div id="negChatLogs" class="space-y-2 text-xs font-mono max-h-52 overflow-y-auto pr-1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <button onclick="runWorkBuddyNegotiationStep()" class="bg-blue-900/60 hover:bg-blue-800/80 text-blue-300 border border-blue-700/60 text-xs font-medium px-4 py-2 rounded-xl transition flex items-center space-x-2">
+                    <i class="fa-solid fa-bolt"></i>
+                    <span>Re-negotiate with Tencent WorkBuddy AI</span>
+                </button>
+                <div class="flex items-center space-x-2">
+                    <button onclick="closeModal('negotiationModal')" class="bg-gray-800 text-gray-300 hover:text-white text-xs font-medium px-4 py-2 rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button id="acceptBidBtn" onclick="acceptSelectedBidAndGeneratePO()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-file-signature"></i>
+                        <span>Lock Agreed Terms & Create PO</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODAL 2: EasyParcel Tracking & Shipment Manager -->
+    <div id="easyparcelModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-2xl w-full flex flex-col shadow-2xl overflow-hidden">
+
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-cyan-600/30 text-cyan-400 border border-cyan-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-truck-fast text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">EasyParcel Shipping & Logistics Tracker</h3>
+                        <p class="text-xs text-gray-400">Live courier tracking and cold-chain status verification</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('easyparcelModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4 text-xs">
+                <!-- Parcel Overview Header -->
+                <div class="bg-gray-950 border border-gray-800 p-4 rounded-xl flex items-center justify-between">
+                    <div>
+                        <span class="text-[10px] text-gray-500 uppercase block font-mono">Consignment Item</span>
+                        <strong class="text-sm text-white font-bold" id="epItemTitle">Grade A Wagyu Beef Patty (100 kg)</strong>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[10px] text-gray-500 uppercase block font-mono">Selected Courier</span>
+                        <span class="text-xs text-cyan-400 font-bold font-mono" id="epCourierName">PosLaju Express (Cold Chain)</span>
+                    </div>
+                </div>
+
+                <!-- Tracking ID Search & Live Sync -->
+                <div class="space-y-1.5">
+                    <label class="block text-gray-300 font-semibold">EasyParcel Tracking Airway Bill (AWB)</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="epTrackingInput" value="EP-MY-88920192" class="flex-1 bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 font-mono text-cyan-300 text-xs focus:outline-none focus:border-cyan-500">
+                        <button onclick="queryEasyParcelApi()" class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded-xl transition flex items-center space-x-1.5">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                            <span>Sync API</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Shipment Step Timeline -->
+                <div class="space-y-2 pt-2">
+                    <h4 class="text-xs font-bold uppercase text-gray-400 tracking-wider">Live Delivery Progression</h4>
+                    <div id="epTimelineContainer">
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <button onclick="advanceEasyParcelStep()" class="bg-cyan-900/60 hover:bg-cyan-800/80 text-cyan-300 border border-cyan-700/60 text-xs font-medium px-4 py-2 rounded-xl transition flex items-center space-x-2">
+                    <i class="fa-solid fa-forward-step"></i>
+                    <span>Simulate Next Courier Step</span>
+                </button>
+                <button onclick="closeModal('easyparcelModal')" class="bg-gray-800 text-gray-300 hover:text-white text-xs font-medium px-4 py-2 rounded-xl transition">
+                    Close Tracker
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODAL 3: Purchase Order (PO) Viewer & Exporter -->
+    <div id="poModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-amber-600/30 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-file-invoice text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Vendor Purchase Order (PO Draft)</h3>
+                        <p class="text-xs text-gray-400">Generated by VibeCheck Agent for Manager Approval</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('poModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- PO Printable Container -->
+            <div class="p-6 overflow-y-auto space-y-4">
+                <div id="poPrintArea" class="bg-white text-gray-900 p-8 rounded-xl shadow-inner border border-gray-200 font-sans">
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="pdfBtn" onclick="printOrSavePdf()" class="bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md shadow-rose-900/30 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Save / Download PDF</span>
+                    </button>
+                    <button onclick="downloadPO()" class="bg-gray-800 hover:bg-gray-700 text-emerald-400 text-xs font-medium px-3.5 py-2 rounded-xl border border-gray-700 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-file-lines"></i>
+                        <span>Download TXT</span>
+                    </button>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="closeModal('poModal')" class="bg-gray-800 text-gray-300 hover:text-white text-xs font-medium px-4 py-2 rounded-xl transition">
+                        Edit Draft
+                    </button>
+                    <button id="approveAndSendPoBtn" onclick="approveAndDispatchPO()" class="bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs px-5 py-2 rounded-xl shadow-lg shadow-amber-500/20 transition flex items-center space-x-2">
+                        <i class="fa-solid fa-paper-plane"></i>
+                        <span>Approve & Create EasyParcel Dispatch</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODAL 4: Sales Usage Log CSV Ingestion -->
+    <div id="ingestModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-xl w-full flex flex-col shadow-2xl overflow-hidden">
+
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-file-csv text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Ingest POS Sales & Usage Log</h3>
+                        <p class="text-xs text-gray-400">Parse daily item usage to recalculate run-out times</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('ingestModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 mb-2">Preset Usage Scenarios</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="applyPresetScenario('rush')" class="bg-gray-800 hover:bg-gray-700 text-xs text-emerald-400 border border-emerald-800/50 p-2 rounded-lg text-left transition">
+                            <strong class="block">🔥 Friday Rush</strong>
+                            <span class="text-[10px] text-gray-400">+50% Patty & Cheese speed</span>
+                        </button>
+                        <button onclick="applyPresetScenario('rainy')" class="bg-gray-800 hover:bg-gray-700 text-xs text-amber-400 border border-amber-800/50 p-2 rounded-lg text-left transition">
+                            <strong class="block">🌧️ Rainy Day</strong>
+                            <span class="text-[10px] text-gray-400">-30% Dine-In usage</span>
+                        </button>
+                        <button onclick="applyPresetScenario('event')" class="bg-gray-800 hover:bg-gray-700 text-xs text-indigo-400 border border-indigo-800/50 p-2 rounded-lg text-left transition">
+                            <strong class="block">🎉 Catering Event</strong>
+                            <span class="text-[10px] text-gray-400">High Truffle & Wine usage</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-xs font-semibold text-gray-300">CSV Sales & Usage Format</label>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="exportSalesDataCsv(true)" class="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-medium flex items-center space-x-1">
+                                <i class="fa-solid fa-file-arrow-down text-[10px]"></i>
+                                <span>Template</span>
+                            </button>
+                            <span class="text-gray-600">|</span>
+                            <button onclick="exportSalesDataCsv(false)" class="text-[11px] text-emerald-400 hover:text-emerald-300 underline font-medium flex items-center space-x-1">
+                                <i class="fa-solid fa-download text-[10px]"></i>
+                                <span>Export Current CSV</span>
+                            </button>
+                        </div>
+                    </div>
+                    <textarea id="csvTextArea" rows="6" class="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs font-mono text-emerald-400 focus:outline-none focus:border-brand-500">Item_SKU,Item_Name,Current_Stock,Safety_Buffer,Daily_Usage_Speed,Unit
+SKU-001,Grade A Wagyu Patty,18,50,22.5,kg
+SKU-002,Fresh Mozzarella Cheese,12,30,14.0,kg
+SKU-003,Organic Truffle Oil,8,15,4.2,Liters
+SKU-004,Jasmine Rice 10kg,45,20,8.0,Bags
+SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <button onclick="closeModal('ingestModal')" class="bg-gray-800 text-gray-300 hover:text-white text-xs font-medium px-4 py-2 rounded-xl transition">
+                    Cancel
+                </button>
+                <button onclick="processCsvIngestion()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-5 py-2 rounded-xl shadow-lg transition flex items-center space-x-2">
+                    <i class="fa-solid fa-calculator"></i>
+                    <span>Recalculate Usage Times & Update Board</span>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODAL 5: Predictive Vibe Insights -->
+    <div id="textAnalyticsModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-2xl w-full flex flex-col shadow-2xl overflow-hidden">
+
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-brand-600/30 text-brand-400 border border-brand-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-quote-left text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Predictive Vibe Insights (Textual Data)</h3>
+                        <p class="text-xs text-gray-400">Deep stock runout analysis using words and indicators only</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('textAnalyticsModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-4 text-xs">
+                <div class="bg-rose-950/40 border border-rose-800/60 p-4 rounded-xl space-y-2">
+                    <div class="flex items-center space-x-2 text-rose-400 font-bold uppercase tracking-wider text-[11px]">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        <span>High Depletion Risk Alert</span>
+                    </div>
+                    <p class="text-gray-300 leading-relaxed">
+                        <strong class="text-white font-mono">Grade A Wagyu Beef Patty</strong> is currently at <strong class="text-rose-400">18 kg</strong> (Safety Buffer: 50 kg). At current daily usage speed of <strong>22.5 kg/day</strong>, complete stockout will occur in approximately <strong class="text-rose-400">0.8 days (19 hours)</strong>.
+                    </p>
+                </div>
+
+                <div class="bg-amber-950/40 border border-amber-800/60 p-4 rounded-xl space-y-2">
+                    <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-[11px]">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>Moderate Depletion Warning</span>
+                    </div>
+                    <p class="text-gray-300 leading-relaxed">
+                        <strong class="text-white font-mono">Fresh Mozzarella Cheese</strong> has reached <strong class="text-amber-400">12 kg</strong> (Safety Buffer: 30 kg). Usage speed is <strong>14.0 kg/day</strong>, leaving <strong class="text-amber-400">0.85 days</strong> before kitchen depletion.
+                    </p>
+                </div>
+
+                <div class="bg-brand-950/40 border border-brand-800/60 p-4 rounded-xl space-y-2">
+                    <div class="flex items-center space-x-2 text-brand-400 font-bold uppercase tracking-wider text-[11px]">
+                        <i class="fa-solid fa-handshake-angle"></i>
+                        <span>AI Vendor Multi-Bidding Vibe Analysis</span>
+                    </div>
+                    <p class="text-gray-300 leading-relaxed">
+                        Agent successfully negotiated terms across <strong class="text-white">Supreme Meat Wholesale</strong> and <strong class="text-white">Artisan Dairy Distributors</strong>. Total savings secured: <strong class="text-emerald-400">RM 265.00</strong> with an average price reduction of <strong class="text-emerald-400">8.35%</strong>.
+                    </p>
+                </div>
+
+                <div class="bg-gray-950 border border-gray-800 p-4 rounded-xl space-y-2">
+                    <div class="flex items-center space-x-2 text-cyan-400 font-bold uppercase tracking-wider text-[11px]">
+                        <i class="fa-solid fa-truck-ramp-box"></i>
+                        <span>EasyParcel Courier ETA Status</span>
+                    </div>
+                    <p class="text-gray-300 leading-relaxed">
+                        1 consignment currently active via <strong class="text-white">PosLaju Express (Cold Chain)</strong>. Estimated delivery window: <strong>Today between 4:00 PM and 6:00 PM</strong>.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 6: Gamification Achievements & Quests Modal -->
+    <div id="achievementsModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-amber-500/40 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-trophy text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Quests & Trophy Room</h3>
+                        <p class="text-xs text-gray-400">Level up your supply chain skills and unlock achievements</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('achievementsModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-5 text-xs">
+                <!-- Rank Header Card -->
+                <div class="bg-gradient-to-r from-amber-500/10 via-brand-500/10 to-purple-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div>
+                        <div class="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Current Manager Rank</div>
+                        <h4 class="text-lg font-black text-white" id="modalLevelTitle">Level 3: Supply Chain Specialist</h4>
+                        <p class="text-gray-400 text-[11px] mt-0.5">Keep restocking efficiency above 90% to level up!</p>
+                    </div>
+                    <div class="w-full sm:w-auto text-right space-y-1">
+                        <div class="text-xs font-mono font-bold text-amber-300" id="modalXpCount">350 / 500 XP</div>
+                        <div class="w-full sm:w-36 h-2 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                            <div class="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full" id="xpBarFill" style="width: 70%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Metrics Summary -->
+                <div class="grid grid-cols-3 gap-3 text-center font-mono">
+                    <div class="bg-gray-950 border border-gray-800 p-3 rounded-xl">
+                        <span class="text-[9px] text-gray-500 block uppercase">Vibe Score</span>
+                        <strong class="text-emerald-400 text-sm" id="modalVibeScore">94%</strong>
+                    </div>
+                    <div class="bg-gray-950 border border-gray-800 p-3 rounded-xl">
+                        <span class="text-[9px] text-gray-500 block uppercase">Stockout Streak</span>
+                        <strong class="text-amber-400 text-sm" id="modalStreak">🔥 7 Days</strong>
+                    </div>
+                    <div class="bg-gray-950 border border-gray-800 p-3 rounded-xl">
+                        <span class="text-[9px] text-gray-500 block uppercase">Total RM Saved</span>
+                        <strong class="text-brand-300 text-sm" id="modalSavings">RM 148.50</strong>
+                    </div>
+                </div>
+
+                <!-- Quests Checklist -->
+                <div class="space-y-2">
+                    <h5 class="text-xs font-bold uppercase tracking-wider text-gray-400">Daily Kitchen Quests</h5>
+                    <div class="space-y-2" id="questsContainer"></div>
+                </div>
+
+                <!-- Trophy Badges -->
+                <div class="space-y-2">
+                    <h5 class="text-xs font-bold uppercase tracking-wider text-gray-400">Achievement Trophies</h5>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="badgesGrid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 7: Simulated Crisis & Recovery Emergency Plan Modal -->
+    <div id="crisisModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-rose-600/80 rounded-2xl max-w-xl w-full flex flex-col shadow-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-800 bg-rose-950/40 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-rose-600/30 text-rose-400 border border-rose-500/30 flex items-center justify-center animate-pulse">
+                        <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Stockout Crisis & Recovery Plan</h3>
+                        <p class="text-xs text-rose-300">Emergency AI Response SOP Activated</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('crisisModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-4 text-xs">
+                <div class="bg-rose-950/50 border border-rose-800/60 p-4 rounded-xl space-y-2" id="crisisSummaryText"></div>
+                <div>
+                    <h4 class="text-xs font-bold uppercase text-gray-300 tracking-wider mb-2">Select Emergency AI Recovery Plan</h4>
+                    <div class="space-y-2" id="crisisSolutionsContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 8: Tencent WorkBuddy AI API Settings & Agent Console Modal -->
+    <div id="workbuddyModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md hidden">
+        <div class="bg-gray-900 border border-blue-800/80 rounded-2xl max-w-xl w-full flex flex-col shadow-2xl overflow-hidden">
+
+            <div class="px-6 py-4 border-b border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-blue-600/30 text-blue-400 border border-blue-500/30 flex items-center justify-center">
+                        <i class="fa-solid fa-robot text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Tencent WorkBuddy AI API Settings</h3>
+                        <p class="text-xs text-gray-400">Agent Harness Core & Managed Agents Runtime Settings</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('workbuddyModal')" class="text-gray-400 hover:text-white text-lg p-2 rounded-lg hover:bg-gray-800 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4 text-xs">
+
+                <div class="bg-blue-950/40 border border-blue-800/60 p-3.5 rounded-xl space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-blue-300 flex items-center space-x-1.5">
+                            <i class="fa-solid fa-cloud"></i>
+                            <span>Tencent WorkBuddy Cloud Runtime</span>
+                        </span>
+                        <span class="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-mono">CONNECTED</span>
+                    </div>
+                    <p class="text-gray-300 leading-relaxed text-[11px]">
+                        VibeCheck uses Tencent WorkBuddy AI to autonomously coordinate inventory tasks, execute multi-vendor price negotiations, parse sales velocity CSVs, and trigger EasyParcel courier API tool calls.
+                    </p>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-1">WorkBuddy Managed Agent Endpoint</label>
+                        <input type="text" id="workbuddyEndpointInput" value="https://api.workbuddy.tencentcloud.com/v1/agent/execute" class="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-blue-300 font-mono focus:border-blue-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-1">WorkBuddy API Secret Key / Token</label>
+                        <!-- Demo placeholder only. Never hard-code a real key in client-side code. -->
+                        <input type="password" id="workbuddyApiKeyInput" value="wb_demo_xxxxxxxxxxxxxxxx" class="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-emerald-400 font-mono focus:border-blue-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-300 font-semibold mb-1">Execution Harness Engine</label>
+                        <select id="workbuddyEngineSelect" class="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                            <option value="wma-cloud">Tencent WorkBuddy Managed Agent (WMA 24/7 Cloud Sandbox)</option>
+                            <option value="workbuddy-harness">WorkBuddy Agent Harness Core (Multi-Agent Parallel Execution)</option>
+                            <option value="workbuddy-fast">WorkBuddy Agent + WorkBuddy Fast Inference (Low-Latency Mode)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Active Tool Call Capabilities -->
+                <div class="bg-gray-950 border border-gray-800 p-3 rounded-xl space-y-1.5">
+                    <span class="text-gray-400 font-bold block uppercase text-[10px]">Registered WorkBuddy Tool Calls</span>
+                    <div class="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                        <span class="bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">csv_velocity_parser()</span>
+                        <span class="bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">vendor_multi_negotiate()</span>
+                        <span class="bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">easyparcel_dispatch_api()</span>
+                        <span class="bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">crisis_sop_generator()</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between">
+                <span class="text-[11px] text-gray-400 font-mono">Latency: <strong class="text-emerald-400">24 ms</strong></span>
+                <button onclick="saveWorkBuddySettings()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-5 py-2 rounded-xl transition flex items-center space-x-2">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>Save & Reconnect WorkBuddy Agent</span>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Application Engine Script -->
+    <script>
+        let inventoryState = [
+            {
+                id: 'item-1',
+                sku: 'SKU-001',
+                name: 'Grade A Wagyu Beef Patty',
+                category: 'Meat / Cold Chain',
+                currentStock: 18,
+                safetyThreshold: 50,
+                dailyVelocity: 22.5,
+                unit: 'kg',
+                reorderQty: 100,
+                stage: 1,
+                poNumber: 'PO-2026-8801',
+                courier: 'PosLaju Express (Cold Chain)',
+                trackingNo: 'EP-MY-88920192',
+                easyParcelStepIndex: 2,
+                savingsAmount: 148.50,
+                selectedSupplierIndex: 0,
+                suppliers: [
+                    { name: 'Supreme Meat Wholesale', listPrice: 85.00, bidPrice: 78.50, leadTimeHours: 12, status: 'Counter-Offered' },
+                    { name: 'Kuala Lumpur Fresh Imports', listPrice: 88.00, bidPrice: 82.00, leadTimeHours: 24, status: 'Standard' }
+                ]
+            },
+            {
+                id: 'item-2',
+                sku: 'SKU-002',
+                name: 'Fresh Mozzarella Cheese',
+                category: 'Dairy / Refrigerated',
+                currentStock: 12,
+                safetyThreshold: 30,
+                dailyVelocity: 14.0,
+                unit: 'kg',
+                reorderQty: 50,
+                stage: 2,
+                poNumber: 'PO-2026-8802',
+                courier: 'J&T Express Frozen',
+                trackingNo: 'EP-MY-77301921',
+                easyParcelStepIndex: 1,
+                savingsAmount: 85.00,
+                selectedSupplierIndex: 0,
+                suppliers: [
+                    { name: 'Artisan Dairy Distributors', listPrice: 42.00, bidPrice: 38.00, leadTimeHours: 18, status: 'Bidding' },
+                    { name: 'Valley Creamery Co.', listPrice: 45.00, bidPrice: 41.50, leadTimeHours: 24, status: 'Standard' }
+                ]
+            },
+            {
+                id: 'item-3',
+                sku: 'SKU-003',
+                name: 'Organic Truffle Oil',
+                category: 'Pantry / Liquids',
+                currentStock: 8,
+                safetyThreshold: 15,
+                dailyVelocity: 4.2,
+                unit: 'Liters',
+                reorderQty: 20,
+                stage: 3,
+                poNumber: 'PO-2026-8803',
+                courier: 'DHL eCommerce',
+                trackingNo: 'EP-MY-99281002',
+                easyParcelStepIndex: 0,
+                savingsAmount: 32.00,
+                selectedSupplierIndex: 0,
+                suppliers: [
+                    { name: 'Gourmet Imports Ltd', listPrice: 120.00, bidPrice: 108.00, leadTimeHours: 24, status: 'Agreed' },
+                    { name: 'Global Pantry Direct', listPrice: 125.00, bidPrice: 115.00, leadTimeHours: 48, status: 'Standard' }
+                ]
+            },
+            {
+                id: 'item-4',
+                sku: 'SKU-004',
+                name: 'Jasmine Rice 10kg',
+                category: 'Dry Goods',
+                currentStock: 45,
+                safetyThreshold: 20,
+                dailyVelocity: 8.0,
+                unit: 'Bags',
+                reorderQty: 30,
+                stage: 4,
+                poNumber: 'PO-2026-8804',
+                courier: 'NinjaVan Express',
+                trackingNo: 'EP-MY-55192039',
+                easyParcelStepIndex: 2,
+                savingsAmount: 0.00,
+                selectedSupplierIndex: 0,
+                suppliers: [
+                    { name: 'Bernas Grain Logistics', listPrice: 38.00, bidPrice: 38.00, leadTimeHours: 24, status: 'Dispatched' }
+                ]
+            },
+            {
+                id: 'item-5',
+                sku: 'SKU-005',
+                name: 'Arabica Coffee Beans',
+                category: 'Beverage / Dry',
+                currentStock: 25,
+                safetyThreshold: 15,
+                dailyVelocity: 6.5,
+                unit: 'kg',
+                reorderQty: 20,
+                stage: 5,
+                poNumber: 'PO-2026-8805',
+                courier: 'PosLaju Express',
+                trackingNo: 'EP-MY-11029384',
+                easyParcelStepIndex: 3,
+                savingsAmount: 40.00,
+                selectedSupplierIndex: 0,
+                suppliers: [
+                    { name: 'Highland Coffee Roasters', listPrice: 65.00, bidPrice: 58.00, leadTimeHours: 12, status: 'Completed' }
+                ]
+            }
+        ];
+
+        let gameState = {
+            userLevel: 3,
+            xp: 350,
+            xpToNextLevel: 500,
+            vibeScore: 94,
+            streakDays: 7,
+            csvIngests: 0,
+            quests: [
+                { id: 'q1', title: 'Run Morning Stock Usage Scan', desc: 'Execute daily usage speed analysis', xp: 50, done: false },
+                { id: 'q2', title: 'Lock 1 AI Vendor Bid', desc: 'Negotiate price reduction via WorkBuddy AI', xp: 100, done: false },
+                { id: 'q3', title: 'Approve Pending PO', desc: 'Review & approve PO draft for dispatch', xp: 75, done: false },
+                { id: 'q4', title: 'Ingest POS CSV Log', desc: 'Update inventory usage speeds with new POS data', xp: 75, done: false }
+            ],
+            badges: [
+                { id: 'b1', title: 'Zero Stockout Defender', desc: 'Maintained 7-day streak with no stockouts', icon: 'fa-shield-halved', color: 'text-emerald-400', unlocked: true },
+                { id: 'b2', title: 'Bargain Master', desc: 'Saved RM 100+ using AI multi-vendor negotiation', icon: 'fa-handshake', color: 'text-brand-400', unlocked: true },
+                { id: 'b3', title: 'Logistics Ninja', desc: 'Tracked 5+ EasyParcel consignments to completion', icon: 'fa-truck-fast', color: 'text-cyan-400', unlocked: true },
+                { id: 'b4', title: 'Auto-Pilot Pioneer', desc: 'Enabled autonomous stock restocking', icon: 'fa-robot', color: 'text-purple-400', unlocked: false },
+                { id: 'b5', title: 'CSV Master Mind', desc: 'Ingested 3+ POS sales usage logs', icon: 'fa-file-csv', color: 'text-amber-400', unlocked: false },
+                { id: 'b6', title: 'Crisis Hero', desc: 'Successfully resolved a simulated stockout crisis', icon: 'fa-triangle-exclamation', color: 'text-rose-400', unlocked: false }
+            ]
+        };
+
+        let activeSelectedItem = null;
+        let autopilotEnabled = false;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            updateGamificationUI();
+        });
+
+        // Close any open modal with Escape
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('[id$="Modal"]').forEach(m => m.classList.add('hidden'));
+            }
+        });
+
+        /* ---------- Helpers ---------- */
+
+        function downloadBlob(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function computePoTotals(item) {
+            const supplier = item.suppliers[item.selectedSupplierIndex] || item.suppliers[0];
+            const unitPrice = supplier.bidPrice;
+            const subtotal = unitPrice * item.reorderQty;
+            const tax = subtotal * 0.06;
+            const grandTotal = subtotal + tax;
+            return { supplier, unitPrice, subtotal, tax, grandTotal };
+        }
+
+        /* ---------- Kanban ---------- */
+
+        function renderKanbanBoard() {
+            for (let i = 1; i <= 5; i++) {
+                const colList = document.getElementById(`colList-${i}`);
+                const colCount = document.getElementById(`colCount-${i}`);
+                if (!colList) continue;
+
+                const itemsInStage = inventoryState.filter(item => item.stage === i);
+                if (colCount) colCount.innerText = itemsInStage.length;
+
+                if (itemsInStage.length === 0) {
+                    colList.innerHTML = `<div class="p-4 border border-dashed border-gray-800 rounded-xl text-center text-xs text-gray-500">No items in this stage</div>`;
+                } else {
+                    colList.innerHTML = itemsInStage.map(item => renderKanbanCard(item)).join('');
+                }
+            }
+        }
+
+        function renderKanbanCard(item) {
+            const supplier = item.suppliers[item.selectedSupplierIndex] || item.suppliers[0];
+            const daysLeft = (item.currentStock / (item.dailyVelocity || 1)).toFixed(1);
+            const isLow = item.currentStock <= item.safetyThreshold;
+
+            if (item.stage === 1) {
+                return `
+                    <div class="glass-card p-3 rounded-xl space-y-2 relative transition hover:border-brand-500/50">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] uppercase tracking-wider font-bold text-gray-400">${item.category}</span>
+                            <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded ${isLow ? 'bg-rose-950 text-rose-400 border border-rose-800' : 'bg-emerald-950 text-emerald-400 border border-emerald-800'}">
+                                ${isLow ? 'CRITICAL DEPLETION' : 'HEALTHY'}
+                            </span>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-white text-xs">${item.name}</h4>
+                            <div class="text-[11px] text-gray-400 font-mono mt-0.5">SKU: ${item.sku}</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-[11px] bg-gray-950/80 p-2 rounded-lg font-mono border border-gray-800">
+                            <div>
+                                <span class="text-gray-500 block text-[9px]">STOCK LEVEL</span>
+                                <strong class="${isLow ? 'text-rose-400' : 'text-emerald-400'}">${item.currentStock} ${item.unit}</strong>
+                            </div>
+                            <div>
+                                <span class="text-gray-500 block text-[9px]">RUNWAY ETA</span>
+                                <strong class="text-amber-400">${daysLeft} Days</strong>
+                            </div>
+                        </div>
+                        <button onclick="moveToStage('${item.id}', 2)" class="w-full bg-brand-600/80 hover:bg-brand-600 text-white font-bold text-xs py-1.5 rounded-lg transition flex items-center justify-center space-x-1.5">
+                            <i class="fa-solid fa-comments-dollar text-xs"></i>
+                            <span>Start AI Negotiation</span>
+                        </button>
+                    </div>
+                `;
+            } else if (item.stage === 2) {
+                return `
+                    <div class="glass-card p-3 rounded-xl space-y-2 border-brand-500/40 relative">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-brand-400 uppercase tracking-wider"><i class="fa-solid fa-bolt mr-1"></i> AI Bidding Active</span>
+                            <span class="text-[10px] bg-brand-950 text-brand-300 px-2 py-0.5 rounded font-mono border border-brand-800">RM ${supplier.bidPrice.toFixed(2)} / ${item.unit}</span>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-white text-xs">${item.name}</h4>
+                            <div class="text-[11px] text-emerald-400 font-mono">Best Bid: ${supplier.name}</div>
+                        </div>
+                        <div class="text-[11px] bg-gray-950 p-2 rounded-lg font-mono space-y-1 border border-gray-800">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Target Reorder:</span>
+                                <strong class="text-white">${item.reorderQty} ${item.unit}</strong>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Est Lead Time:</span>
+                                <strong class="text-amber-400">&lt; ${supplier.leadTimeHours} Hours</strong>
+                            </div>
+                        </div>
+                        <button onclick="openNegotiationModal('${item.id}')" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-1.5 rounded-lg transition flex items-center justify-center space-x-1">
+                            <i class="fa-solid fa-handshake"></i>
+                            <span>Review & Negotiate Bids</span>
+                        </button>
+                    </div>
+                `;
+            } else if (item.stage === 3) {
+                const totalCost = computePoTotals(item).grandTotal.toFixed(2);
+                return `
+                    <div class="glass-card p-3 rounded-xl space-y-2 border-amber-500/40 relative">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-amber-400 font-mono">${item.poNumber}</span>
+                            <span class="text-[10px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded font-mono border border-amber-800">PO DRAFT</span>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-white text-xs">${item.name}</h4>
+                            <div class="text-[11px] text-gray-400">Vendor: ${supplier.name}</div>
+                        </div>
+                        <div class="text-[11px] bg-gray-950 p-2 rounded-lg font-mono space-y-1 border border-gray-800">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Total (incl. SST):</span>
+                                <strong class="text-emerald-400">RM ${totalCost}</strong>
+                            </div>
+                        </div>
+                        <button onclick="openPoModal('${item.id}')" class="w-full bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs py-1.5 rounded-lg transition flex items-center justify-center space-x-1">
+                            <i class="fa-solid fa-file-invoice"></i>
+                            <span>Review & Approve PO</span>
+                        </button>
+                    </div>
+                `;
+            } else if (item.stage === 4) {
+                return `
+                    <div class="glass-card p-3 rounded-xl space-y-2 border-cyan-500/40 relative">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-cyan-400 font-mono">${item.trackingNo}</span>
+                            <span class="text-[10px] bg-cyan-950 text-cyan-300 px-2 py-0.5 rounded font-mono border border-cyan-800">IN TRANSIT</span>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-white text-xs">${item.name}</h4>
+                            <div class="text-[11px] text-cyan-300 font-mono">${item.courier}</div>
+                        </div>
+                        <button onclick="openEasyParcelModal('${item.id}')" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs py-1.5 rounded-lg transition flex items-center justify-center space-x-1">
+                            <i class="fa-solid fa-truck-fast"></i>
+                            <span>Track Delivery Status</span>
+                        </button>
+                    </div>
+                `;
+            } else if (item.stage === 5) {
+                return `
+                    <div class="glass-card p-3 rounded-xl space-y-2 border-emerald-500/40 relative opacity-90">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-emerald-400 font-mono">RESTOCKED</span>
+                            <span class="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded font-mono border border-emerald-800">COMPLETED</span>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-white text-xs">${item.name}</h4>
+                            <div class="text-[11px] text-emerald-400 font-mono">Stock Added: +${item.reorderQty} ${item.unit}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            return '';
+        }
+
+        function moveToStage(itemId, newStage) {
+            const item = inventoryState.find(i => i.id === itemId);
+            if (item) {
+                item.stage = newStage;
+                renderKanbanBoard();
+                updateHeaderMetrics();
+            }
+        }
+
+        function updateHeaderMetrics() {
+            // Depletion risk (now fully dynamic instead of partly hard-coded)
+            const lowItems = inventoryState
+                .filter(i => i.currentStock <= i.safetyThreshold)
+                .map(i => ({ item: i, days: i.currentStock / (i.dailyVelocity || 1) }))
+                .sort((a, b) => a.days - b.days);
+
+            const atRiskCount = document.getElementById('atRiskCount');
+            if (atRiskCount) atRiskCount.innerText = `${lowItems.length} Stock Item${lowItems.length === 1 ? '' : 's'}`;
+
+            const riskBadge = document.getElementById('riskBadge');
+            if (riskBadge) riskBadge.innerText = lowItems.length > 0 ? `${lowItems.length} Critical` : 'All Clear';
+
+            const riskSummary = document.getElementById('riskSummaryText');
+            if (riskSummary) {
+                if (lowItems.length === 0) {
+                    riskSummary.innerHTML = `<strong class="text-emerald-400">All items</strong> above safety threshold`;
+                } else {
+                    const names = lowItems.slice(0, 2).map((x, idx) =>
+                        `<strong class="${idx === 0 ? 'text-rose-400' : 'text-amber-400'}">${x.item.name}</strong>`).join(' & ');
+                    const more = lowItems.length > 2 ? ` +${lowItems.length - 2} more` : '';
+                    riskSummary.innerHTML = `${names}${more} below safety threshold`;
+                }
+            }
+
+            const runoutEta = document.getElementById('runoutEta');
+            if (runoutEta) runoutEta.innerText = lowItems.length > 0 ? `Min ETA: ${lowItems[0].days.toFixed(1)} Days` : 'Min ETA: —';
+
+            const inTransit = inventoryState.filter(i => i.stage === 4);
+            const inTransitCount = document.getElementById('inTransitCount');
+            if (inTransitCount) inTransitCount.innerText = `${inTransit.length} Parcel${inTransit.length === 1 ? '' : 's'} En-Route`;
+
+            const courierText = document.getElementById('courierText');
+            if (courierText) courierText.innerText = inTransit.length > 0 ? inTransit[0].courier : 'No active shipments';
+
+            let totalSavings = inventoryState.reduce((sum, i) => sum + (i.savingsAmount || 0), 0);
+            const negotiationSavings = document.getElementById('negotiationSavings');
+            if (negotiationSavings) negotiationSavings.innerText = `RM ${totalSavings.toFixed(2)} Saved`;
+
+            const negStatus = document.getElementById('negotiationStatusText');
+            if (negStatus) {
+                const bidding = inventoryState.filter(i => i.stage === 2).length;
+                negStatus.innerText = `${bidding} item${bidding === 1 ? '' : 's'} in vendor bidding`;
+            }
+        }
+
+        /* ---------- Gamification ---------- */
+
+        function updateGamificationUI() {
+            const levelText = document.getElementById('headerLevelText');
+            if (levelText) levelText.innerText = `Lvl ${gameState.userLevel}`;
+
+            const vibeScore = document.getElementById('headerVibeScore');
+            if (vibeScore) vibeScore.innerText = `${gameState.vibeScore}% Vibe`;
+
+            const streakText = document.getElementById('headerStreakText');
+            if (streakText) streakText.innerText = `${gameState.streakDays} Days Streak`;
+
+            const modalLevelTitle = document.getElementById('modalLevelTitle');
+            if (modalLevelTitle) {
+                const titles = {
+                    1: 'Level 1: Kitchen Rookie',
+                    2: 'Level 2: Inventory Apprentice',
+                    3: 'Level 3: Supply Chain Specialist',
+                    4: 'Level 4: Resto MasterChef',
+                    5: 'Level 5: Vibe Legend'
+                };
+                modalLevelTitle.innerText = titles[gameState.userLevel] || `Level ${gameState.userLevel}: Supply Chain Master`;
+            }
+
+            const modalXpCount = document.getElementById('modalXpCount');
+            if (modalXpCount) modalXpCount.innerText = `${gameState.xp} / ${gameState.xpToNextLevel} XP`;
+
+            const xpBarFill = document.getElementById('xpBarFill');
+            if (xpBarFill) {
+                const pct = Math.min(100, Math.round((gameState.xp / gameState.xpToNextLevel) * 100));
+                xpBarFill.style.width = `${pct}%`;
+            }
+
+            const modalVibeScore = document.getElementById('modalVibeScore');
+            if (modalVibeScore) modalVibeScore.innerText = `${gameState.vibeScore}% (${gameState.vibeScore > 85 ? 'Vibing High' : 'Needs Check'})`;
+
+            const modalStreak = document.getElementById('modalStreak');
+            if (modalStreak) modalStreak.innerText = `🔥 ${gameState.streakDays} Days`;
+
+            let totalSavings = inventoryState.reduce((sum, i) => sum + (i.savingsAmount || 0), 0);
+            const modalSavings = document.getElementById('modalSavings');
+            if (modalSavings) modalSavings.innerText = `RM ${totalSavings.toFixed(2)}`;
+
+            const questsContainer = document.getElementById('questsContainer');
+            if (questsContainer) {
+                questsContainer.innerHTML = gameState.quests.map(q => `
+                    <div class="p-3 rounded-xl border ${q.done ? 'bg-emerald-950/20 border-emerald-800/60' : 'bg-gray-950 border-gray-800'} flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 rounded-lg ${q.done ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-800 text-gray-400'} flex items-center justify-center text-xs">
+                                <i class="fa-solid ${q.done ? 'fa-check-double' : 'fa-list-check'}"></i>
+                            </div>
+                            <div>
+                                <h5 class="text-xs font-bold text-white">${q.title}</h5>
+                                <p class="text-[10px] text-gray-400">${q.desc}</p>
+                            </div>
+                        </div>
+                        <div>
+                            ${q.done ?
+                                `<span class="text-[10px] font-mono text-emerald-400 font-bold px-2 py-1 rounded bg-emerald-950 border border-emerald-800">COMPLETED (+${q.xp} XP)</span>` :
+                                `<button onclick="completeQuest('${q.id}')" class="text-[10px] font-bold text-amber-400 hover:text-amber-300 px-2.5 py-1 rounded bg-amber-950/60 border border-amber-800 transition">+${q.xp} XP Claim</button>`
+                            }
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            const badgesGrid = document.getElementById('badgesGrid');
+            if (badgesGrid) {
+                badgesGrid.innerHTML = gameState.badges.map(b => `
+                    <div class="p-3 rounded-xl border ${b.unlocked ? 'bg-gray-950 border-amber-500/40 shadow-sm' : 'bg-gray-950/50 border-gray-800 opacity-50'} flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center ${b.color} text-lg">
+                            <i class="fa-solid ${b.icon}"></i>
+                        </div>
+                        <div>
+                            <h5 class="text-xs font-bold text-white flex items-center space-x-1">
+                                <span>${b.title}</span>
+                                ${b.unlocked ? '<i class="fa-solid fa-circle-check text-amber-400 text-[10px]"></i>' : ''}
+                            </h5>
+                            <p class="text-[10px] text-gray-400 leading-tight mt-0.5">${b.desc}</p>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            const unclaimedBadgeCount = document.getElementById('unclaimedBadgeCount');
+            if (unclaimedBadgeCount) {
+                const pendingQuests = gameState.quests.filter(q => !q.done).length;
+                unclaimedBadgeCount.innerText = pendingQuests;
+            }
+        }
+
+        function addXp(amount, reason) {
+            gameState.xp += amount;
+            if (gameState.xp >= gameState.xpToNextLevel) {
+                gameState.userLevel++;
+                gameState.xp = gameState.xp - gameState.xpToNextLevel;
+                gameState.xpToNextLevel = Math.round(gameState.xpToNextLevel * 1.25);
+                showToast(`🎉 LEVEL UP! You reached Level ${gameState.userLevel}!`);
+            } else {
+                showToast(`+${amount} XP: ${reason}`);
+            }
+            updateGamificationUI();
+        }
+
+        // Awards XP once: via the quest if it is still open, otherwise as a plain XP reward.
+        // (The original called addXp AND completeQuest, so XP was granted twice.)
+        function rewardAction(amount, reason, questId) {
+            const q = questId ? gameState.quests.find(item => item.id === questId) : null;
+            if (q && !q.done) {
+                completeQuest(questId);
+            } else {
+                addXp(amount, reason);
+            }
+        }
+
+        function showToast(msg) {
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'fixed bottom-4 right-4 z-[60] flex flex-col space-y-2 pointer-events-none';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.className = 'bg-gray-900 border border-amber-500/60 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center space-x-2 pointer-events-auto transition-all transform duration-300 translate-y-2 opacity-0';
+            toast.innerHTML = `<i class="fa-solid fa-award text-amber-400"></i><span>${msg}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        function completeQuest(questId) {
+            const q = gameState.quests.find(item => item.id === questId);
+            if (q && !q.done) {
+                q.done = true;
+                addXp(q.xp, `Completed Quest: ${q.title}`);
+            }
+        }
+
+        /* ---------- WorkBuddy settings ---------- */
+
+        function openWorkBuddyConfigModal() { openModal('workbuddyModal'); }
+        function saveWorkBuddySettings() {
+            closeModal('workbuddyModal');
+            showToast('⚡ Tencent WorkBuddy AI Agent reconnected successfully!');
+            const apiStatus = document.getElementById('workbuddyApiStatus');
+            if (apiStatus) apiStatus.innerText = 'ONLINE (18ms)';
+        }
+
+        function openAchievementsModal() {
+            updateGamificationUI();
+            openModal('achievementsModal');
+        }
+
+        function openTextAnalyticsModal() { openModal('textAnalyticsModal'); }
+        function openIngestModal() { openModal('ingestModal'); }
+
+        /* ---------- Agent actions ---------- */
+
+        function triggerSalesVelocityScan() {
+            inventoryState.forEach(item => {
+                if (item.currentStock <= item.safetyThreshold && item.stage === 1) {
+                    item.stage = 2;
+                }
+            });
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            rewardAction(50, 'Ran Stock Usage Scan', 'q1');
+        }
+
+        function autoNegotiateAllLowStock() {
+            inventoryState.forEach(item => {
+                if (item.stage === 1 || item.stage === 2) {
+                    item.stage = 2;
+                    const supplier = item.suppliers[item.selectedSupplierIndex || 0];
+                    if (supplier) {
+                        supplier.bidPrice = Math.max(10, supplier.bidPrice * 0.92);
+                        item.savingsAmount = (item.savingsAmount || 0) + 25;
+                    }
+                }
+            });
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            addXp(100, 'Auto-Negotiated All Low Stock');
+        }
+
+        function toggleAutopilot() {
+            autopilotEnabled = document.getElementById('autopilotToggle').checked;
+            if (autopilotEnabled) {
+                showToast('🤖 Auto-Restock Activated: Autonomous Restocking Enabled');
+                autoNegotiateAllLowStock();
+                const badge = gameState.badges.find(b => b.id === 'b4');
+                if (badge) badge.unlocked = true;
+            } else {
+                showToast('Auto-Restock Paused');
+            }
+            updateGamificationUI();
+        }
+
+        function triggerStockoutCrisis() {
+            const wagyu = inventoryState.find(i => i.id === 'item-1');
+            if (wagyu) {
+                wagyu.currentStock = 0;
+                wagyu.stage = 1;
+            }
+            gameState.vibeScore = 68;
+            gameState.streakDays = 0;
+
+            updateHeaderMetrics();
+            updateGamificationUI();
+            renderKanbanBoard();
+
+            const summaryText = document.getElementById('crisisSummaryText');
+            if (summaryText) {
+                summaryText.innerHTML = `
+                    <p class="mb-2"><strong class="text-white font-mono">Grade A Wagyu Beef Patty</strong> has completely run out of stock (<strong class="text-rose-400">0 kg remaining</strong>)!</p>
+                    <p class="text-gray-400"><strong>Root Cause:</strong> Unanticipated +50% weekend dinner rush combined with delayed vendor dispatch approval. Kitchen is currently turning away burger orders.</p>
+                `;
+            }
+
+            const solutionsContainer = document.getElementById('crisisSolutionsContainer');
+            if (solutionsContainer) {
+                solutionsContainer.innerHTML = `
+                    <div onclick="resolveCrisis(1)" class="p-3.5 rounded-xl border border-brand-500/50 bg-gray-950 hover:bg-brand-950/40 cursor-pointer transition flex items-center justify-between group">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white group-hover:text-brand-300">1. Emergency Same-Day Cold Chain Dispatch</span>
+                                <span class="text-[9px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800">EasyParcel Express</span>
+                            </div>
+                            <p class="text-[11px] text-gray-400">Dispatch PosLaju Express rider to pick up 40kg directly from Supreme Meat Wholesale distribution center within 2 hours.</p>
+                        </div>
+                        <button class="bg-brand-600 group-hover:bg-brand-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">
+                            Execute (+20% Vibe)
+                        </button>
+                    </div>
+
+                    <div onclick="resolveCrisis(2)" class="p-3.5 rounded-xl border border-amber-500/50 bg-gray-950 hover:bg-amber-950/40 cursor-pointer transition flex items-center justify-between group">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white group-hover:text-amber-300">2. Inter-Branch Emergency Transfer</span>
+                                <span class="text-[9px] bg-amber-950 text-amber-300 px-1.5 py-0.5 rounded border border-amber-800">Sister Branch Loan</span>
+                            </div>
+                            <p class="text-[11px] text-gray-400">Request 15kg emergency transfer from VibeCheck Sister Outlet (Bangsar Branch). Driver dispatched.</p>
+                        </div>
+                        <button class="bg-amber-600 group-hover:bg-amber-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">
+                            Transfer (+15% Vibe)
+                        </button>
+                    </div>
+
+                    <div onclick="resolveCrisis(3)" class="p-3.5 rounded-xl border border-gray-800 bg-gray-950 hover:bg-gray-800 cursor-pointer transition flex items-center justify-between group">
+                        <div class="space-y-1">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs font-bold text-white">3. Temporary Menu Substitution</span>
+                                <span class="text-[9px] bg-gray-800 text-gray-300 px-1.5 py-0.5 rounded border border-gray-700">POS Menu Update</span>
+                            </div>
+                            <p class="text-[11px] text-gray-400">Promote "Angus Truffle Burger" on POS menu until fresh Wagyu delivery arrives tomorrow morning.</p>
+                        </div>
+                        <button class="bg-gray-700 group-hover:bg-gray-600 text-gray-200 font-bold text-xs px-3 py-1.5 rounded-lg whitespace-nowrap ml-3">
+                            Substitute (+10% Vibe)
+                        </button>
+                    </div>
+                `;
+            }
+
+            openModal('crisisModal');
+            showToast('💔 STOCKOUT CRISIS! Streak broken & Vibe Score dropped to ' + gameState.vibeScore + '%');
+        }
+
+        function resolveCrisis(optionIndex) {
+            const wagyu = inventoryState.find(i => i.id === 'item-1');
+
+            if (optionIndex === 1) {
+                if (wagyu) {
+                    wagyu.currentStock = 40;
+                    wagyu.stage = 4;
+                    wagyu.easyParcelStepIndex = 2;
+                }
+                gameState.vibeScore = Math.min(100, gameState.vibeScore + 20);
+                showToast('🚀 Same-Day Emergency Dispatch Triggered! Wagyu stock restored.');
+            } else if (optionIndex === 2) {
+                if (wagyu) {
+                    wagyu.currentStock = 15;
+                    wagyu.stage = 1;
+                }
+                gameState.vibeScore = Math.min(100, gameState.vibeScore + 15);
+                showToast('🚗 Sister Branch Transfer Approved! 15kg Wagyu received.');
+            } else if (optionIndex === 3) {
+                if (wagyu) {
+                    wagyu.currentStock = 5;
+                    wagyu.stage = 2;
+                }
+                gameState.vibeScore = Math.min(100, gameState.vibeScore + 10);
+                showToast('📋 Menu Substitution Activated! Angus Truffle featured.');
+            }
+
+            const heroBadge = gameState.badges.find(b => b.id === 'b6');
+            if (heroBadge) heroBadge.unlocked = true;
+
+            addXp(120, 'Averted Supply Chain Crisis');
+
+            closeModal('crisisModal');
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            updateGamificationUI();
+        }
+
+        /* ---------- Negotiation ---------- */
+
+        function openNegotiationModal(itemId) {
+            activeSelectedItem = inventoryState.find(i => i.id === itemId);
+            if (!activeSelectedItem) return;
+
+            document.getElementById('negModalItemName').innerText = `${activeSelectedItem.name} (${activeSelectedItem.sku})`;
+
+            const summary = document.getElementById('negItemSummary');
+            summary.innerHTML = `
+                <div><span class="text-gray-500 block">Current Stock</span><strong class="text-rose-400">${activeSelectedItem.currentStock} ${activeSelectedItem.unit}</strong></div>
+                <div><span class="text-gray-500 block">Safety Buffer</span><strong class="text-white">${activeSelectedItem.safetyThreshold} ${activeSelectedItem.unit}</strong></div>
+                <div><span class="text-gray-500 block">Daily Usage Speed</span><strong class="text-amber-400">${activeSelectedItem.dailyVelocity} ${activeSelectedItem.unit}/day</strong></div>
+                <div><span class="text-gray-500 block">Recommended Restock</span><strong class="text-emerald-400">${activeSelectedItem.reorderQty} ${activeSelectedItem.unit}</strong></div>
+            `;
+
+            renderVendorGrid();
+            renderNegLogs();
+            openModal('negotiationModal');
+        }
+
+        function renderVendorGrid() {
+            if (!activeSelectedItem) return;
+            const grid = document.getElementById('vendorGrid');
+            grid.innerHTML = activeSelectedItem.suppliers.map((v, idx) => `
+                <div onclick="selectVendor(${idx})" class="p-3 rounded-xl border cursor-pointer transition ${activeSelectedItem.selectedSupplierIndex === idx ? 'border-brand-500 bg-brand-950/30' : 'border-gray-800 bg-gray-950'}">
+                    <div class="flex items-center justify-between mb-1">
+                        <strong class="text-white font-bold text-xs">${v.name}</strong>
+                        <span class="text-[10px] px-2 py-0.5 rounded ${activeSelectedItem.selectedSupplierIndex === idx ? 'bg-brand-600 text-white' : 'bg-gray-800 text-gray-400'}">
+                            ${activeSelectedItem.selectedSupplierIndex === idx ? 'Selected' : 'Select'}
+                        </span>
+                    </div>
+                    <div class="text-xs font-mono text-emerald-400 font-bold">RM ${v.bidPrice.toFixed(2)} / ${activeSelectedItem.unit}</div>
+                    <div class="text-[11px] text-gray-400">List Price: RM ${v.listPrice.toFixed(2)} | Lead Time: &lt;${v.leadTimeHours}h</div>
+                </div>
+            `).join('');
+        }
+
+        function selectVendor(idx) {
+            if (activeSelectedItem) {
+                activeSelectedItem.selectedSupplierIndex = idx;
+                renderVendorGrid();
+                renderNegLogs();
+            }
+        }
+
+        function renderNegLogs() {
+            if (!activeSelectedItem) return;
+            // Log now follows the vendor that is actually selected (original always showed supplier[0])
+            const sel = activeSelectedItem.suppliers[activeSelectedItem.selectedSupplierIndex || 0];
+            const logs = document.getElementById('negChatLogs');
+            logs.innerHTML = `
+                <div class="text-brand-400">[WorkBuddy Agent] Initiated multi-distributor quote comparison for ${activeSelectedItem.name}.</div>
+                <div class="text-emerald-400">[WorkBuddy Harness Core] Counter-offer dispatched to ${sel.name} for volume rate.</div>
+                <div class="text-gray-300">[Vendor Response] ${sel.name} agreed to RM ${sel.bidPrice.toFixed(2)} (${sel.status}).</div>
+            `;
+        }
+
+        function runWorkBuddyNegotiationStep() {
+            if (!activeSelectedItem) return;
+            const supplier = activeSelectedItem.suppliers[activeSelectedItem.selectedSupplierIndex || 0];
+            supplier.bidPrice = Math.max(10, supplier.bidPrice * 0.95);
+            activeSelectedItem.savingsAmount += 15;
+            renderVendorGrid();
+            renderNegLogs();
+            updateHeaderMetrics();
+            showToast('⚡ Tencent WorkBuddy AI negotiated an extra 5% discount!');
+        }
+
+        function acceptSelectedBidAndGeneratePO() {
+            if (!activeSelectedItem) return;
+            activeSelectedItem.stage = 3;
+            closeModal('negotiationModal');
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            rewardAction(100, 'Locked AI Vendor Bid', 'q2');
+        }
+
+        /* ---------- Purchase Order ---------- */
+
+        function openPoModal(itemId) {
+            activeSelectedItem = inventoryState.find(i => i.id === itemId);
+            if (!activeSelectedItem) return;
+
+            const { supplier, unitPrice, subtotal, tax, grandTotal } = computePoTotals(activeSelectedItem);
+
+            const poArea = document.getElementById('poPrintArea');
+            poArea.innerHTML = `
+                <div class="flex justify-between items-start border-b-2 border-gray-200 pb-4 mb-4">
+                    <div>
+                        <h2 class="text-2xl font-black text-gray-900 tracking-tight">VibeCheck Bistro</h2>
+                        <p class="text-xs text-gray-600 mt-0.5">124 Culinary Boulevard, Gourmet City, Malaysia</p>
+                        <p class="text-xs text-gray-600 mt-1">PO Reference: <strong class="text-indigo-600 font-mono font-bold">${activeSelectedItem.poNumber}</strong></p>
+                    </div>
+                    <div class="text-right">
+                        <span class="bg-amber-100 text-amber-900 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider border border-amber-300">Purchase Order</span>
+                        <p class="text-xs text-gray-500 mt-2 font-mono">Date: ${new Date().toLocaleDateString('en-GB')}</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-6 text-xs">
+                    <div class="bg-gray-50 p-3.5 rounded-lg border border-gray-200">
+                        <span class="font-bold text-gray-800 block uppercase tracking-wider mb-1 text-[10px]">Vendor Details:</span>
+                        <strong class="text-gray-900 block text-sm">${supplier.name}</strong>
+                        <span class="text-gray-600 block mt-1">Contract Rate: Agreed AI Multi-Vendor Rate</span>
+                        <span class="text-gray-600 block">Lead Time: &lt; ${supplier.leadTimeHours} Hours</span>
+                    </div>
+                    <div class="bg-gray-50 p-3.5 rounded-lg border border-gray-200">
+                        <span class="font-bold text-gray-800 block uppercase tracking-wider mb-1 text-[10px]">Dispatch via EasyParcel:</span>
+                        <strong class="text-indigo-600 block text-sm">${activeSelectedItem.courier}</strong>
+                        <span class="text-gray-600 block mt-1 font-mono">Consignment: ${activeSelectedItem.trackingNo}</span>
+                        <span class="text-gray-600 block">Delivery Status: Cold Chain Guaranteed</span>
+                    </div>
+                </div>
+
+                <table class="w-full text-xs text-left mb-6 border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100 border-b border-gray-300 text-gray-700 uppercase text-[10px]">
+                            <th class="p-2.5 font-bold">SKU</th>
+                            <th class="p-2.5 font-bold">Item Description</th>
+                            <th class="p-2.5 font-bold text-right">Quantity</th>
+                            <th class="p-2.5 font-bold text-right">Unit Price</th>
+                            <th class="p-2.5 font-bold text-right">Amount (RM)</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        <tr>
+                            <td class="p-2.5 font-mono text-gray-600">${activeSelectedItem.sku}</td>
+                            <td class="p-2.5 font-bold text-gray-900">${activeSelectedItem.name}</td>
+                            <td class="p-2.5 text-right font-mono">${activeSelectedItem.reorderQty} ${activeSelectedItem.unit}</td>
+                            <td class="p-2.5 text-right font-mono">RM ${unitPrice.toFixed(2)}</td>
+                            <td class="p-2.5 text-right font-bold font-mono text-gray-900">RM ${subtotal.toFixed(2)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="flex justify-end text-xs font-mono pt-2 border-t border-gray-200">
+                    <div class="w-64 space-y-1.5">
+                        <div class="flex justify-between text-gray-600"><span>Subtotal:</span><span>RM ${subtotal.toFixed(2)}</span></div>
+                        <div class="flex justify-between text-gray-600"><span>SST Tax (6%):</span><span>RM ${tax.toFixed(2)}</span></div>
+                        <div class="flex justify-between font-extrabold text-base text-indigo-900 border-t-2 border-indigo-200 pt-2"><span>Grand Total:</span><span>RM ${grandTotal.toFixed(2)}</span></div>
+                    </div>
+                </div>
+            `;
+
+            openModal('poModal');
+        }
+
+        function approveAndDispatchPO() {
+            if (!activeSelectedItem) return;
+            activeSelectedItem.stage = 4;
+            closeModal('poModal');
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            rewardAction(75, 'Approved PO', 'q3');
+        }
+
+        function downloadPO() {
+            if (!activeSelectedItem) return;
+            const { supplier, unitPrice, subtotal, tax, grandTotal } = computePoTotals(activeSelectedItem);
+
+            const poText = `
+VIBECHECK BISTRO - VENDOR PURCHASE ORDER
+PO Ref: ${activeSelectedItem.poNumber}
+Date: ${new Date().toLocaleDateString('en-GB')}
+
+VENDOR DETAILS:
+Supplier: ${supplier.name}
+Lead Time: < ${supplier.leadTimeHours} Hours
+
+DISPATCH DETAILS:
+Courier: ${activeSelectedItem.courier}
+Tracking No: ${activeSelectedItem.trackingNo}
+
+ORDER DETAILS:
+SKU: ${activeSelectedItem.sku}
+Item: ${activeSelectedItem.name}
+Quantity: ${activeSelectedItem.reorderQty} ${activeSelectedItem.unit}
+Unit Price: RM ${unitPrice.toFixed(2)}
+Subtotal: RM ${subtotal.toFixed(2)}
+SST Tax (6%): RM ${tax.toFixed(2)}
+----------------------------------------
+GRAND TOTAL: RM ${grandTotal.toFixed(2)}
+            `.trim();
+
+            downloadBlob(poText, `VibeCheck_PO_${activeSelectedItem.poNumber}.txt`, 'text/plain;charset=utf-8');
+            showToast(`Downloaded PO TXT: ${activeSelectedItem.poNumber}`);
+        }
+
+        /* ---------- PDF export (FIXED) ----------
+           Root cause of the broken download: the original cloned the PO, gave the clone
+           position:absolute; left:-9999px and appended it to <body>. html2pdf then makes its
+           own copy of that element inside an on-screen overlay, and the copy kept the
+           left:-9999px style, so html2canvas rendered a blank / empty page (or the promise
+           never resolved). The fix is to pass a plain detached clone (no off-screen
+           positioning) and let html2pdf place it in its own overlay.                         */
+        function printOrSavePdf() {
+            if (!activeSelectedItem) return;
+            const element = document.getElementById('poPrintArea');
+            if (!element || !element.innerHTML.trim()) {
+                showToast('⚠️ Error: Purchase order content not found.');
+                return;
+            }
+
+            if (typeof html2pdf === 'undefined') {
+                showToast('⚠️ PDF library failed to load. Opening print dialog instead.');
+                fallbackPrintWindow();
+                return;
+            }
+
+            const btn = document.getElementById('pdfBtn');
+            if (btn) btn.disabled = true;
+            showToast('📄 Generating PDF...');
+
+            // Detached clone, fixed print width, no positioning tricks.
+            const clone = element.cloneNode(true);
+            clone.removeAttribute('id');
+            clone.style.cssText = [
+                'width:700px',
+                'max-width:none',
+                'margin:0',
+                'padding:24px',
+                'background:#ffffff',
+                'color:#111827',
+                'border:none',
+                'border-radius:0',
+                'box-shadow:none',
+                'box-sizing:border-box'
+            ].join(';');
+
+            const filename = `VibeCheck_PO_${activeSelectedItem.poNumber}.pdf`;
+            const opt = {
+                margin: 0.4,
+                filename: filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff',
+                    scrollX: 0,
+                    scrollY: 0
+                },
+                jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['css', 'legacy'] }
+            };
+
+            html2pdf().set(opt).from(clone).save()
+                .then(() => {
+                    showToast('✅ Purchase Order PDF downloaded!');
+                })
+                .catch(err => {
+                    console.error('PDF generation error:', err);
+                    showToast('⚠️ PDF failed. Opening print dialog as a fallback.');
+                    fallbackPrintWindow();
+                })
+                .finally(() => {
+                    if (btn) btn.disabled = false;
+                });
+        }
+
+        function fallbackPrintWindow() {
+            try {
+                window.print();
+            } catch (e) {
+                showToast('⚠️ Print blocked by browser. Downloading TXT instead.');
+                downloadPO();
+            }
+        }
+
+        /* ---------- EasyParcel ---------- */
+
+        function openEasyParcelModal(itemId) {
+            if (!itemId) {
+                activeSelectedItem = inventoryState.find(i => i.stage === 4) || inventoryState[0];
+            } else {
+                activeSelectedItem = inventoryState.find(i => i.id === itemId);
+            }
+            if (!activeSelectedItem) return;
+
+            const titleEl = document.getElementById('epItemTitle');
+            if (titleEl) titleEl.innerText = `${activeSelectedItem.name} (${activeSelectedItem.reorderQty} ${activeSelectedItem.unit})`;
+
+            const courierEl = document.getElementById('epCourierName');
+            if (courierEl) courierEl.innerText = activeSelectedItem.courier;
+
+            const trackingInput = document.getElementById('epTrackingInput');
+            if (trackingInput) trackingInput.value = activeSelectedItem.trackingNo;
+
+            renderEasyParcelTimeline();
+            openModal('easyparcelModal');
+        }
+
+        function renderEasyParcelTimeline() {
+            if (!activeSelectedItem) return;
+            const steps = ['Consignment Picked Up', 'Sorting Hub Arrived', 'Out for Delivery', 'Delivered & Received'];
+            const container = document.getElementById('epTimelineContainer');
+            if (!container) return;
+
+            container.innerHTML = `
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                    ${steps.map((step, idx) => `
+                        <div class="p-2 rounded-lg border ${idx <= (activeSelectedItem.easyParcelStepIndex || 0) ? 'bg-cyan-950/60 border-cyan-500 text-cyan-300' : 'bg-gray-950 border-gray-800 text-gray-500'} font-mono text-[10px]">
+                            <div class="font-bold">${step}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function advanceEasyParcelStep() {
+            if (!activeSelectedItem) return;
+            if ((activeSelectedItem.easyParcelStepIndex || 0) < 3) {
+                activeSelectedItem.easyParcelStepIndex = (activeSelectedItem.easyParcelStepIndex || 0) + 1;
+                if (activeSelectedItem.easyParcelStepIndex === 3) {
+                    activeSelectedItem.stage = 5;
+                    activeSelectedItem.currentStock += activeSelectedItem.reorderQty;
+                }
+                renderEasyParcelTimeline();
+                renderKanbanBoard();
+                updateHeaderMetrics();
+                showToast(`🚚 Delivery Status Updated: Step ${activeSelectedItem.easyParcelStepIndex + 1}/4`);
+            }
+        }
+
+        function queryEasyParcelApi() {
+            renderEasyParcelTimeline();
+            showToast('📡 EasyParcel API Synced');
+        }
+
+        /* ---------- CSV / scenarios ---------- */
+
+        function applyPresetScenario(scenario) {
+            if (scenario === 'rush') {
+                inventoryState[0].dailyVelocity = 35.0;
+                inventoryState[1].dailyVelocity = 22.0;
+                showToast('🔥 Friday Rush Scenario Applied (+50% Usage Speed)');
+            } else if (scenario === 'rainy') {
+                inventoryState.forEach(i => i.dailyVelocity = Math.max(1, parseFloat((i.dailyVelocity * 0.7).toFixed(1))));
+                showToast('🌧️ Rainy Day Scenario Applied (-30% Usage Speed)');
+            } else if (scenario === 'event') {
+                inventoryState[2].dailyVelocity = 12.0;
+                showToast('🎉 Catering Event Scenario Applied');
+            }
+            renderKanbanBoard();
+            updateHeaderMetrics();
+        }
+
+        function processCsvIngestion() {
+            const rawText = document.getElementById('csvTextArea').value.trim();
+            const lines = rawText.split(/\r?\n/);
+            let updatedCount = 0;
+
+            // Original used `parseFloat(x) || old`, which silently ignored a legitimate 0 (e.g. stock = 0).
+            const num = (v, fallback) => {
+                const n = parseFloat(v);
+                return Number.isNaN(n) ? fallback : n;
+            };
+
+            for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].split(',').map(s => s.trim());
+                if (parts.length >= 5) {
+                    const [sku, , stock, buffer, velocity] = parts;
+                    const existing = inventoryState.find(item => item.sku === sku);
+                    if (existing) {
+                        existing.currentStock = num(stock, existing.currentStock);
+                        existing.safetyThreshold = num(buffer, existing.safetyThreshold);
+                        existing.dailyVelocity = num(velocity, existing.dailyVelocity);
+                        updatedCount++;
+                    }
+                }
+            }
+
+            gameState.csvIngests++;
+            if (gameState.csvIngests >= 3) {
+                const b5 = gameState.badges.find(b => b.id === 'b5');
+                if (b5 && !b5.unlocked) {
+                    b5.unlocked = true;
+                    showToast('🏅 Badge unlocked: CSV Master Mind!');
+                }
+            }
+
+            closeModal('ingestModal');
+            renderKanbanBoard();
+            updateHeaderMetrics();
+            rewardAction(75, `Ingested POS CSV (${updatedCount} items updated)`, 'q4');
+        }
+
+        function exportSalesDataCsv(isTemplate = false) {
+            let csvContent = "Item_SKU,Item_Name,Current_Stock,Safety_Buffer,Daily_Usage_Speed,Unit\n";
+            if (isTemplate) {
+                csvContent += "SKU-001,Sample Item 1,20,50,10.0,kg\n";
+                csvContent += "SKU-002,Sample Item 2,15,30,5.0,Liters\n";
+            } else {
+                inventoryState.forEach(item => {
+                    csvContent += `${item.sku},"${item.name}",${item.currentStock},${item.safetyThreshold},${item.dailyVelocity},${item.unit}\n`;
+                });
+            }
+
+            downloadBlob(csvContent, isTemplate ? "VibeCheck_Sales_Template.csv" : "VibeCheck_Current_Sales_Log.csv", 'text/csv;charset=utf-8');
+            showToast(isTemplate ? "Downloaded CSV Template" : "Exported Sales Log CSV");
+        }
+
+        /* ---------- Modals ---------- */
+
+        function openModal(id) {
+            const modal = document.getElementById(id);
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+            if (modal) modal.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
