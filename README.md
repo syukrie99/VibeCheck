@@ -2,7 +2,7 @@
 
 An AI-powered inventory management agent for small local businesses (cafes, restaurants, and shops). VibeCheck watches stock levels, predicts run-outs from daily usage speed, negotiates with suppliers, drafts purchase orders, and tracks deliveries, all from one board.
 
-Built for a hackathon (Idea 24: Smart Local Inventory & Reorder Management Agent). Powered by **Tencent WorkBuddy AI**.
+Built for a hackathon. Powered by **Tencent WorkBuddy AI**.
 
 ## Features
 
