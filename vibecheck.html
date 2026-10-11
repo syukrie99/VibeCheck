@@ -470,25 +470,30 @@
                     </div>
                 </div>
 
+                <!-- AI Context Analysis & Strategy Panel -->
+                <div id="aiContextPanel" class="bg-gray-950 border border-brand-800/40 rounded-xl p-4 space-y-2">
+                    <div class="text-xs text-gray-500">AI context analysis will appear here when a negotiation is opened.</div>
+                </div>
+
                 <!-- AI Agent Chat Logs / Negotiation Stream -->
                 <div class="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3">
                     <div class="flex items-center justify-between border-b border-gray-800/80 pb-2">
                         <span class="text-xs font-bold text-white flex items-center space-x-2">
                             <i class="fa-solid fa-terminal text-blue-400"></i>
-                            <span>Tencent WorkBuddy Agent Reasoning Log</span>
+                            <span>AI Reasoning &amp; Negotiation Stream</span>
                         </span>
-                        <span class="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded font-mono border border-blue-800">WorkBuddy Managed Agent</span>
+                        <span class="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded font-mono border border-blue-800">Context-Aware Engine</span>
                     </div>
 
-                    <div id="negChatLogs" class="space-y-2 text-xs font-mono max-h-52 overflow-y-auto pr-1">
+                    <div id="negChatLogs" class="space-y-2 text-xs font-mono max-h-72 overflow-y-auto pr-1">
                     </div>
                 </div>
             </div>
 
             <div class="px-6 py-4 border-t border-gray-800 bg-gray-950/80 flex items-center justify-between">
                 <button onclick="runWorkBuddyNegotiationStep()" class="bg-blue-900/60 hover:bg-blue-800/80 text-blue-300 border border-blue-700/60 text-xs font-medium px-4 py-2 rounded-xl transition flex items-center space-x-2">
-                    <i class="fa-solid fa-bolt"></i>
-                    <span>Re-negotiate with Tencent WorkBuddy AI</span>
+                    <i class="fa-solid fa-brain"></i>
+                    <span>Run AI Reasoning Step</span>
                 </button>
                 <div class="flex items-center space-x-2">
                     <button onclick="closeModal('negotiationModal')" class="bg-gray-800 text-gray-300 hover:text-white text-xs font-medium px-4 py-2 rounded-xl transition">
@@ -1478,19 +1483,44 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
         }
 
         function autoNegotiateAllLowStock() {
+            let totalSavings = 0;
+            let itemsProcessed = 0;
+            const reportLines = [];
+
             inventoryState.forEach(item => {
                 if (item.stage === 1 || item.stage === 2) {
                     item.stage = 2;
-                    const supplier = item.suppliers[item.selectedSupplierIndex || 0];
-                    if (supplier) {
-                        supplier.bidPrice = Math.max(10, supplier.bidPrice * 0.92);
-                        item.savingsAmount = (item.savingsAmount || 0) + 25;
+
+                    // Use the reasoning engine to pick the best vendor for this item
+                    const best = pickBestVendor(item);
+                    item.selectedSupplierIndex = best.index;
+
+                    const selIdx = item.selectedSupplierIndex;
+                    const supplier = item.suppliers[selIdx];
+                    const neg = ensureNegState(item, selIdx);
+                    const decision = recommendStrategy(item, selIdx);
+
+                    if (decision.actualDiscount > 0.001) {
+                        const oldPrice = supplier.bidPrice;
+                        supplier.bidPrice = decision.newBidPrice;
+                        supplier.status = 'Counter-Offered';
+                        neg.rounds++;
+                        const savings = (oldPrice - decision.newBidPrice) * item.reorderQty;
+                        item.savingsAmount = (item.savingsAmount || 0) + savings;
+                        totalSavings += savings;
+                        itemsProcessed++;
+                        reportLines.push(`${item.name}: ${supplier.name} RM ${oldPrice.toFixed(2)} → RM ${decision.newBidPrice.toFixed(2)} (${decision.strategyLabel}, +RM ${savings.toFixed(2)})`);
+                    } else {
+                        itemsProcessed++;
+                        reportLines.push(`${item.name}: ${supplier.name} — no further discount viable, holding at RM ${supplier.bidPrice.toFixed(2)}`);
                     }
                 }
             });
+
             renderKanbanBoard();
             updateHeaderMetrics();
             addXp(100, 'Auto-Negotiated All Low Stock');
+            showToast(`AI Engine processed ${itemsProcessed} item(s), saved RM ${totalSavings.toFixed(2)} total`);
         }
 
         function toggleAutopilot() {
@@ -1686,6 +1716,247 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
             if (openTracker) openEasyParcelModal('item-1');
         }
 
+        /* ---------- AI Reasoning Engine ----------
+           Replaces flat-percentage discounts with context-aware reasoning.
+           The engine analyzes urgency, vendor leverage, diminishing returns,
+           lead-time trade-offs, and negotiation fatigue before deciding
+           how hard to push on each counter-offer.                                */
+
+        // Per-supplier negotiation state tracking
+        function ensureNegState(item, supplierIdx) {
+            const s = item.suppliers[supplierIdx];
+            if (!s._neg) {
+                s._neg = { rounds: 0, log: [], aiScore: null, recommendation: null };
+            }
+            return s._neg;
+        }
+
+        // Full context analysis for an item + supplier pair
+        function analyzeContext(item, supplierIdx) {
+            const supplier = item.suppliers[supplierIdx];
+            const neg = ensureNegState(item, supplierIdx);
+
+            const velocity = item.dailyVelocity || 1;
+            const daysRunway = item.currentStock / velocity;
+
+            // Urgency score 0-1
+            let urgencyScore;
+            if (daysRunway <= 0.5) urgencyScore = 1.0;
+            else if (daysRunway <= 1.5) urgencyScore = 0.85;
+            else if (daysRunway <= 3) urgencyScore = 0.6;
+            else if (daysRunway <= 5) urgencyScore = 0.35;
+            else urgencyScore = 0.15;
+
+            // Existing discount depth
+            const existingDiscountPct = ((supplier.listPrice - supplier.bidPrice) / supplier.listPrice) * 100;
+
+            // Diminishing returns factor — harder to extract concessions once vendor already gave a lot
+            const diminishingFactor = existingDiscountPct >= 20 ? 0.3
+                                    : existingDiscountPct >= 15 ? 0.5
+                                    : existingDiscountPct >= 10 ? 0.7
+                                    : 1.0;
+
+            // Vendor competitiveness analysis
+            const allBids = item.suppliers.map(s => s.bidPrice);
+            const minBid = Math.min(...allBids);
+            const maxBid = Math.max(...allBids);
+            const isCheapest = supplier.bidPrice <= minBid;
+            const priceGapFromMin = minBid > 0 ? (supplier.bidPrice - minBid) / minBid : 0;
+
+            // Lead time analysis
+            const allLead = item.suppliers.map(s => s.leadTimeHours);
+            const minLead = Math.min(...allLead);
+            const isFastest = supplier.leadTimeHours <= minLead;
+            const leadTimeGapFromFastest = minLead > 0 ? (supplier.leadTimeHours - minLead) : 0;
+
+            // Volume / order value leverage
+            const orderValue = supplier.bidPrice * item.reorderQty;
+            const volumePower = orderValue > 5000 ? 1.0 : orderValue > 2000 ? 0.7 : orderValue > 500 ? 0.4 : 0.2;
+
+            const competitorCount = item.suppliers.length - 1;
+            const hasLeverage = competitorCount >= 1;
+
+            // Negotiation fatigue — each round makes further concessions harder
+            const negFatigue = neg.rounds >= 4 ? 0.3 : neg.rounds >= 3 ? 0.5 : neg.rounds >= 2 ? 0.75 : 1.0;
+
+            return {
+                daysRunway, urgencyScore, existingDiscountPct, diminishingFactor,
+                isCheapest, priceGapFromMin, isFastest, leadTimeGapFromFastest,
+                volumePower, hasLeverage, competitorCount, negFatigue,
+                negRounds: neg.rounds, orderValue
+            };
+        }
+
+        // Composite vendor score for ranking — urgency shifts weight between price and lead time
+        function scoreVendor(item, supplierIdx) {
+            const ctx = analyzeContext(item, supplierIdx);
+            const supplier = item.suppliers[supplierIdx];
+
+            const allBids = item.suppliers.map(s => s.bidPrice);
+            const minBid = Math.min(...allBids);
+            const maxBid = Math.max(...allBids);
+            const priceScore = maxBid > minBid ? 1 - (supplier.bidPrice - minBid) / (maxBid - minBid) : 0.5;
+
+            const allLead = item.suppliers.map(s => s.leadTimeHours);
+            const minLead = Math.min(...allLead);
+            const maxLead = Math.max(...allLead);
+            const leadScore = maxLead > minLead ? 1 - (supplier.leadTimeHours - minLead) / (maxLead - minLead) : 0.5;
+
+            // At high urgency, lead time matters more; at low urgency, price matters more
+            const leadTimeWeight = 0.2 + (ctx.urgencyScore * 0.6);
+            const priceWeight = 1 - leadTimeWeight;
+
+            const compositeScore = (priceScore * priceWeight) + (leadScore * leadTimeWeight);
+
+            return { priceScore, leadScore, compositeScore, leadTimeWeight, priceWeight, ctx };
+        }
+
+        // Auto-select the best vendor based on composite scoring
+        function pickBestVendor(item) {
+            let bestIdx = 0;
+            let bestScore = -1;
+            const scores = [];
+            item.suppliers.forEach((s, idx) => {
+                const result = scoreVendor(item, idx);
+                scores.push({ idx, score: result.compositeScore, detail: result });
+                if (result.compositeScore > bestScore) {
+                    bestScore = result.compositeScore;
+                    bestIdx = idx;
+                }
+            });
+            return { index: bestIdx, score: bestScore, allScores: scores };
+        }
+
+        // Recommend a counter-offer strategy based on full context analysis
+        function recommendStrategy(item, supplierIdx) {
+            const ctx = analyzeContext(item, supplierIdx);
+            const supplier = item.suppliers[supplierIdx];
+            const neg = ensureNegState(item, supplierIdx);
+
+            // Start with a base 3% discount ask
+            let discountPct = 0.03;
+
+            // Volume leverage adds pressure
+            discountPct += ctx.volumePower * 0.02;
+
+            // Competitor leverage — can threaten to switch
+            if (ctx.hasLeverage) discountPct += 0.02;
+
+            // Diminishing returns reduce the ask
+            discountPct *= ctx.diminishingFactor;
+
+            // Negotiation fatigue reduces the ask
+            discountPct *= ctx.negFatigue;
+
+            // High urgency + fastest delivery → be gentler (protect the relationship, time > money)
+            if (ctx.urgencyScore > 0.7 && ctx.isFastest) {
+                discountPct *= 0.6;
+            }
+
+            // Low urgency + leverage → push harder
+            if (ctx.urgencyScore < 0.3 && ctx.hasLeverage) {
+                discountPct *= 1.4;
+            }
+
+            // Already cheapest with no competitors → limited room
+            if (ctx.isCheapest && !ctx.hasLeverage) {
+                discountPct *= 0.5;
+            }
+
+            // Cap per-round at 10%, total discount at 25% of list price
+            const maxPerRound = 0.10;
+            discountPct = Math.min(discountPct, maxPerRound);
+            const currentDiscount = (supplier.listPrice - supplier.bidPrice) / supplier.listPrice;
+            const remainingRoom = Math.max(0, 0.25 - currentDiscount);
+            discountPct = Math.min(discountPct, remainingRoom);
+
+            // Compute new price
+            const newBidPrice = Math.max(supplier.listPrice * 0.75, supplier.bidPrice * (1 - discountPct));
+            const actualDiscount = (supplier.bidPrice - newBidPrice) / supplier.bidPrice;
+            const savings = (supplier.bidPrice - newBidPrice) * item.reorderQty;
+
+            // Strategy label
+            let strategyLabel;
+            if (discountPct >= 0.07) strategyLabel = 'aggressive';
+            else if (discountPct >= 0.04) strategyLabel = 'moderate';
+            else if (discountPct >= 0.01) strategyLabel = 'gentle';
+            else strategyLabel = 'hold';
+
+            // Build human-readable reasoning chain
+            const reasons = [];
+            reasons.push(`Stock runway: ${ctx.daysRunway.toFixed(1)} days (urgency ${Math.round(ctx.urgencyScore * 100)}%)`);
+
+            if (ctx.existingDiscountPct >= 15) {
+                reasons.push(`Vendor already conceded ${ctx.existingDiscountPct.toFixed(1)}% — diminishing returns factor ${ctx.diminishingFactor}, reducing ask`);
+            }
+
+            if (ctx.hasLeverage && !ctx.isCheapest) {
+                reasons.push(`${ctx.competitorCount} competing vendor(s), this bid is ${(ctx.priceGapFromMin * 100).toFixed(1)}% above cheapest — strong leverage to threaten switching`);
+            } else if (ctx.hasLeverage && ctx.isCheapest) {
+                reasons.push(`This vendor is already cheapest — limited pricing leverage remaining`);
+            } else {
+                reasons.push(`Sole supplier — no competitive leverage available`);
+            }
+
+            if (ctx.urgencyScore > 0.7 && ctx.isFastest) {
+                reasons.push(`High urgency but fastest lead time (${supplier.leadTimeHours}h) — softening pressure to protect delivery`);
+            } else if (ctx.leadTimeGapFromFastest > 0) {
+                reasons.push(`Lead time ${ctx.leadTimeGapFromFastest}h slower than fastest — usable as negotiation point`);
+            }
+
+            if (ctx.volumePower >= 0.7) {
+                reasons.push(`Order value RM ${ctx.orderValue.toFixed(0)} — high volume leverage`);
+            }
+
+            if (ctx.negRounds >= 3) {
+                reasons.push(`${ctx.negRounds} prior rounds — vendor fatigue, ask reduced ${Math.round((1 - ctx.negFatigue) * 100)}%`);
+            }
+
+            const counterOfferText = `Counter ${supplier.name} at RM ${newBidPrice.toFixed(2)} (${(actualDiscount * 100).toFixed(1)}% reduction, ${strategyLabel})`;
+
+            return {
+                strategyLabel, discountPct, actualDiscount, newBidPrice, savings, reasons,
+                counterOfferText, context: ctx
+            };
+        }
+
+        // Generate the dynamic reasoning log — real analysis text, not hardcoded strings
+        function generateReasoningLog(item, decision) {
+            const sel = item.suppliers[item.selectedSupplierIndex || 0];
+            const ctx = decision.context;
+            const lines = [];
+
+            lines.push({ color: 'text-brand-400', text: `[AI Engine] Analyzing ${item.name} — ${ctx.daysRunway.toFixed(1)} days runway, urgency ${Math.round(ctx.urgencyScore * 100)}%, existing discount ${ctx.existingDiscountPct.toFixed(1)}%` });
+
+            // Vendor score comparison
+            const best = pickBestVendor(item);
+            best.allScores.forEach(s => {
+                const sn = item.suppliers[s.idx].name;
+                const marker = s.idx === item.selectedSupplierIndex ? ' ← selected' : '';
+                lines.push({ color: 'text-gray-400', text: `[AI Engine] ${sn}: score ${(s.score * 100).toFixed(0)}/100 (price ${(s.detail.priceScore * 100).toFixed(0)}, lead ${(s.detail.leadScore * 100).toFixed(0)}, lead-weight ${Math.round(s.detail.leadTimeWeight * 100)}%)${marker}` });
+            });
+
+            // Strategy decision
+            lines.push({ color: 'text-amber-400', text: `[AI Engine] Strategy: ${decision.strategyLabel} — counter at RM ${decision.newBidPrice.toFixed(2)} (${(decision.actualDiscount * 100).toFixed(1)}% reduction)` });
+
+            // Reasoning chain
+            decision.reasons.forEach(r => {
+                lines.push({ color: 'text-gray-300', text: `  → ${r}` });
+            });
+
+            // Counter-offer dispatched
+            lines.push({ color: 'text-emerald-400', text: `[AI Agent] ${decision.counterOfferText}` });
+
+            // Vendor response (context-based)
+            if (decision.actualDiscount > 0.001) {
+                lines.push({ color: 'text-gray-300', text: `[Vendor Response] ${sel.name} reviewed counter-offer. Accepted RM ${decision.newBidPrice.toFixed(2)} (${decision.strategyLabel} terms).` });
+            } else {
+                lines.push({ color: 'text-rose-400', text: `[AI Engine] No further discount viable — at ceiling or fatigue too high. Recommend locking current bid.` });
+            }
+
+            return lines;
+        }
+
         /* ---------- Negotiation ---------- */
 
         function openNegotiationModal(itemId) {
@@ -1703,6 +1974,7 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
             `;
 
             renderVendorGrid();
+            renderAiContextPanel();
             renderNegLogs();
             openModal('negotiationModal');
         }
@@ -1710,49 +1982,182 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
         function renderVendorGrid() {
             if (!activeSelectedItem) return;
             const grid = document.getElementById('vendorGrid');
-            grid.innerHTML = activeSelectedItem.suppliers.map((v, idx) => `
-                <div onclick="selectVendor(${idx})" class="p-3 rounded-xl border cursor-pointer transition ${activeSelectedItem.selectedSupplierIndex === idx ? 'border-brand-500 bg-brand-950/30' : 'border-gray-800 bg-gray-950'}">
+            const best = pickBestVendor(activeSelectedItem);
+
+            grid.innerHTML = activeSelectedItem.suppliers.map((v, idx) => {
+                const score = best.allScores.find(s => s.idx === idx);
+                const ctx = analyzeContext(activeSelectedItem, idx);
+                const isSelected = activeSelectedItem.selectedSupplierIndex === idx;
+                const isBest = best.index === idx;
+                const existingDisc = ctx.existingDiscountPct;
+
+                return `
+                <div onclick="selectVendor(${idx})" class="p-3 rounded-xl border cursor-pointer transition ${isSelected ? 'border-brand-500 bg-brand-950/30' : 'border-gray-800 bg-gray-950'}">
                     <div class="flex items-center justify-between mb-1">
                         <strong class="text-white font-bold text-xs">${v.name}</strong>
-                        <span class="text-[10px] px-2 py-0.5 rounded ${activeSelectedItem.selectedSupplierIndex === idx ? 'bg-brand-600 text-white' : 'bg-gray-800 text-gray-400'}">
-                            ${activeSelectedItem.selectedSupplierIndex === idx ? 'Selected' : 'Select'}
-                        </span>
+                        <div class="flex items-center space-x-1">
+                            ${isBest ? '<span class="text-[9px] bg-emerald-950 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-800 font-bold">AI BEST</span>' : ''}
+                            <span class="text-[10px] px-2 py-0.5 rounded ${isSelected ? 'bg-brand-600 text-white' : 'bg-gray-800 text-gray-400'}">
+                                ${isSelected ? 'Selected' : 'Select'}
+                            </span>
+                        </div>
                     </div>
                     <div class="text-xs font-mono text-emerald-400 font-bold">RM ${v.bidPrice.toFixed(2)} / ${activeSelectedItem.unit}</div>
-                    <div class="text-[11px] text-gray-400">List Price: RM ${v.listPrice.toFixed(2)} | Lead Time: &lt;${v.leadTimeHours}h</div>
+                    <div class="text-[11px] text-gray-400">List: RM ${v.listPrice.toFixed(2)} | Lead: &lt;${v.leadTimeHours}h</div>
+                    <div class="mt-1.5 grid grid-cols-3 gap-1 text-[9px] font-mono">
+                        <div class="bg-gray-900 rounded px-1.5 py-0.5 text-center border border-gray-800">
+                            <span class="text-gray-500 block">SCORE</span>
+                            <strong class="text-brand-300">${(score.score * 100).toFixed(0)}</strong>
+                        </div>
+                        <div class="bg-gray-900 rounded px-1.5 py-0.5 text-center border border-gray-800">
+                            <span class="text-gray-500 block">PRICE</span>
+                            <strong class="text-emerald-400">${(score.detail.priceScore * 100).toFixed(0)}</strong>
+                        </div>
+                        <div class="bg-gray-900 rounded px-1.5 py-0.5 text-center border border-gray-800">
+                            <span class="text-gray-500 block">LEAD</span>
+                            <strong class="text-cyan-400">${(score.detail.leadScore * 100).toFixed(0)}</strong>
+                        </div>
+                    </div>
+                    <div class="mt-1 text-[10px] text-gray-500">
+                        ${existingDisc > 0 ? `Disc: <span class="text-emerald-400">${existingDisc.toFixed(1)}%</span>` : 'No discount yet'}
+                        ${ctx.negRounds > 0 ? ` | Rounds: <span class="text-amber-400">${ctx.negRounds}</span>` : ''}
+                    </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function selectVendor(idx) {
             if (activeSelectedItem) {
                 activeSelectedItem.selectedSupplierIndex = idx;
+                // Clear the negotiation log for the newly selected vendor so fresh analysis runs
+                const neg = ensureNegState(activeSelectedItem, idx);
+                if (neg.log.length === 0) {
+                    // No prior history — will show initial analysis
+                }
                 renderVendorGrid();
+                renderAiContextPanel();
                 renderNegLogs();
             }
         }
 
         function renderNegLogs() {
             if (!activeSelectedItem) return;
-            // Log now follows the vendor that is actually selected (original always showed supplier[0])
-            const sel = activeSelectedItem.suppliers[activeSelectedItem.selectedSupplierIndex || 0];
             const logs = document.getElementById('negChatLogs');
-            logs.innerHTML = `
-                <div class="text-brand-400">[WorkBuddy Agent] Initiated multi-distributor quote comparison for ${activeSelectedItem.name}.</div>
-                <div class="text-emerald-400">[WorkBuddy Harness Core] Counter-offer dispatched to ${sel.name} for volume rate.</div>
-                <div class="text-gray-300">[Vendor Response] ${sel.name} agreed to RM ${sel.bidPrice.toFixed(2)} (${sel.status}).</div>
+            const selIdx = activeSelectedItem.selectedSupplierIndex || 0;
+            const neg = ensureNegState(activeSelectedItem, selIdx);
+
+            // If we have accumulated negotiation history, show it; otherwise show initial analysis
+            if (neg.log.length > 0) {
+                logs.innerHTML = neg.log.map(line =>
+                    `<div class="${line.color}">${line.text}</div>`
+                ).join('');
+            } else {
+                // Initial analysis on modal open — generate reasoning without applying changes
+                const decision = recommendStrategy(activeSelectedItem, selIdx);
+                const lines = generateReasoningLog(activeSelectedItem, decision);
+                // Mark as preliminary (no counter sent yet)
+                lines.push({ color: 'text-blue-400', text: `[AI Engine] Awaiting user action — click "Re-negotiate" to dispatch counter-offer, or "Lock Terms" to accept current bid.` });
+                logs.innerHTML = lines.map(line =>
+                    `<div class="${line.color}">${line.text}</div>`
+                ).join('');
+            }
+        }
+
+        // Render the AI context analysis panel inside the negotiation modal
+        function renderAiContextPanel() {
+            if (!activeSelectedItem) return;
+            const panel = document.getElementById('aiContextPanel');
+            if (!panel) return;
+
+            const selIdx = activeSelectedItem.selectedSupplierIndex || 0;
+            const ctx = analyzeContext(activeSelectedItem, selIdx);
+            const decision = recommendStrategy(activeSelectedItem, selIdx);
+            const best = pickBestVendor(activeSelectedItem);
+            const sel = activeSelectedItem.suppliers[selIdx];
+
+            // Urgency color
+            const urgColor = ctx.urgencyScore >= 0.7 ? 'text-rose-400' : ctx.urgencyScore >= 0.4 ? 'text-amber-400' : 'text-emerald-400';
+            const urgLabel = ctx.urgencyScore >= 0.7 ? 'CRITICAL' : ctx.urgencyScore >= 0.4 ? 'ELEVATED' : 'COMFORTABLE';
+
+            panel.innerHTML = `
+                <div class="flex items-center justify-between border-b border-gray-800/80 pb-2 mb-2">
+                    <span class="text-xs font-bold text-white flex items-center space-x-2">
+                        <i class="fa-solid fa-brain text-brand-400"></i>
+                        <span>AI Context Analysis &amp; Strategy</span>
+                    </span>
+                    <span class="text-[10px] bg-brand-950 text-brand-300 px-2 py-0.5 rounded font-mono border border-brand-800">Live Reasoning</span>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono">
+                    <div class="bg-gray-900/60 rounded-lg p-2 border border-gray-800">
+                        <span class="text-gray-500 block text-[9px] uppercase">Runway</span>
+                        <strong class="${urgColor}">${ctx.daysRunway.toFixed(1)} days</strong>
+                        <span class="text-[9px] ${urgColor} block">${urgLabel}</span>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-lg p-2 border border-gray-800">
+                        <span class="text-gray-500 block text-[9px] uppercase">Existing Discount</span>
+                        <strong class="text-emerald-400">${ctx.existingDiscountPct.toFixed(1)}%</strong>
+                        <span class="text-[9px] text-gray-500 block">Factor: ${ctx.diminishingFactor}</span>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-lg p-2 border border-gray-800">
+                        <span class="text-gray-500 block text-[9px] uppercase">Volume Leverage</span>
+                        <strong class="${ctx.volumePower >= 0.7 ? 'text-emerald-400' : 'text-amber-400'}">${ctx.volumePower >= 0.7 ? 'High' : ctx.volumePower >= 0.4 ? 'Medium' : 'Low'}</strong>
+                        <span class="text-[9px] text-gray-500 block">RM ${ctx.orderValue.toFixed(0)}</span>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-lg p-2 border border-gray-800">
+                        <span class="text-gray-500 block text-[9px] uppercase">Competitors</span>
+                        <strong class="${ctx.hasLeverage ? 'text-emerald-400' : 'text-rose-400'}">${ctx.competitorCount} vendor(s)</strong>
+                        <span class="text-[9px] text-gray-500 block">${ctx.hasLeverage ? 'Leverage: yes' : 'Sole supplier'}</span>
+                    </div>
+                </div>
+                <div class="mt-2 bg-gray-900/60 rounded-lg p-2 border border-brand-800/40 text-[11px]">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-gray-400 font-bold uppercase text-[9px]">AI Recommendation</span>
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${decision.strategyLabel === 'aggressive' ? 'bg-rose-950 text-rose-400 border border-rose-800' : decision.strategyLabel === 'moderate' ? 'bg-amber-950 text-amber-400 border border-amber-800' : decision.strategyLabel === 'gentle' ? 'bg-brand-950 text-brand-300 border border-brand-800' : 'bg-gray-800 text-gray-400 border border-gray-700'}">${decision.strategyLabel.toUpperCase()}</span>
+                    </div>
+                    <p class="text-gray-300 leading-relaxed">${decision.counterOfferText}</p>
+                    <div class="mt-1.5 space-y-0.5">
+                        ${decision.reasons.map(r => `<div class="text-[10px] text-gray-400">→ ${r}</div>`).join('')}
+                    </div>
+                </div>
             `;
         }
 
         function runWorkBuddyNegotiationStep() {
             if (!activeSelectedItem) return;
-            const supplier = activeSelectedItem.suppliers[activeSelectedItem.selectedSupplierIndex || 0];
-            supplier.bidPrice = Math.max(10, supplier.bidPrice * 0.95);
-            activeSelectedItem.savingsAmount += 15;
+            const selIdx = activeSelectedItem.selectedSupplierIndex || 0;
+            const supplier = activeSelectedItem.suppliers[selIdx];
+            const neg = ensureNegState(activeSelectedItem, selIdx);
+
+            // Run the reasoning engine
+            const decision = recommendStrategy(activeSelectedItem, selIdx);
+
+            if (decision.actualDiscount <= 0.001) {
+                // No viable discount — don't apply changes, just log the reasoning
+                neg.log = generateReasoningLog(activeSelectedItem, decision);
+                neg.log.push({ color: 'text-rose-400', text: `[AI Engine] No further discount viable. Recommend locking current bid of RM ${supplier.bidPrice.toFixed(2)}.` });
+                renderNegLogs();
+                renderAiContextPanel();
+                showToast(`AI Engine: No further discount viable for ${supplier.name}. Recommend locking current bid.`);
+                return;
+            }
+
+            // Apply the reasoning-based counter-offer
+            const oldPrice = supplier.bidPrice;
+            supplier.bidPrice = decision.newBidPrice;
+            supplier.status = 'Counter-Offered';
+            neg.rounds++;
+            const actualSavings = (oldPrice - decision.newBidPrice) * activeSelectedItem.reorderQty;
+            activeSelectedItem.savingsAmount = (activeSelectedItem.savingsAmount || 0) + actualSavings;
+
+            // Generate and store the reasoning log
+            neg.log = generateReasoningLog(activeSelectedItem, decision);
+
             renderVendorGrid();
             renderNegLogs();
+            renderAiContextPanel();
             updateHeaderMetrics();
-            showToast('⚡ Tencent WorkBuddy AI negotiated an extra 5% discount!');
+            showToast(`AI Engine: ${decision.strategyLabel} strategy — RM ${oldPrice.toFixed(2)} → RM ${decision.newBidPrice.toFixed(2)} (${(decision.actualDiscount * 100).toFixed(1)}% reduction). Saved RM ${actualSavings.toFixed(2)} on this order.`);
         }
 
         function acceptSelectedBidAndGeneratePO() {
@@ -1790,7 +2195,7 @@ SKU-005,Arabica Coffee Beans,25,15,6.5,kg</textarea>
                     <div class="bg-gray-50 p-3.5 rounded-lg border border-gray-200">
                         <span class="font-bold text-gray-800 block uppercase tracking-wider mb-1 text-[10px]">Vendor Details:</span>
                         <strong class="text-gray-900 block text-sm">${supplier.name}</strong>
-                        <span class="text-gray-600 block mt-1">Contract Rate: Agreed AI Multi-Vendor Rate</span>
+                        <span class="text-gray-600 block mt-1">Contract Rate: AI Reasoning-Negotiated Rate</span>
                         <span class="text-gray-600 block">Lead Time: &lt; ${supplier.leadTimeHours} Hours</span>
                     </div>
                     <div class="bg-gray-50 p-3.5 rounded-lg border border-gray-200">
